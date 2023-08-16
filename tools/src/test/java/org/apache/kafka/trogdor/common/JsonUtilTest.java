@@ -45,7 +45,7 @@ public class JsonUtilTest {
         assertTrue(JsonUtil.openBraceComesFirst("{}"));
         assertTrue(JsonUtil.openBraceComesFirst(" \t{\"foo\":\"bar\"}"));
         assertTrue(JsonUtil.openBraceComesFirst(" { \"foo\": \"bar\" }"));
-        assertFalse(JsonUtil.openBraceComesFirst("/my/file/path"));
+        assertFalse(JsonUtil.openBraceComesFirst("/com/buzz/file/path"));
         assertFalse(JsonUtil.openBraceComesFirst("mypath"));
         assertFalse(JsonUtil.openBraceComesFirst(" blah{}"));
     }

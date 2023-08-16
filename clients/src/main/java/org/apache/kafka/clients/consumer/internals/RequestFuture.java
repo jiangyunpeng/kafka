@@ -50,6 +50,7 @@ public class RequestFuture<T> implements ConsumerNetworkClient.PollCondition {
     private final CountDownLatch completedLatch = new CountDownLatch(1);
 
     /**
+     * 是否已完成
      * Check whether the response is ready to be handled
      * @return true if the response is ready, false otherwise
      */

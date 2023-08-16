@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.network;
 
+import org.apache.kafka.SourceLogger;
+
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -57,6 +59,7 @@ public class ByteBufferSend implements Send {
 
     @Override
     public long writeTo(GatheringByteChannel channel) throws IOException {
+        //SourceLogger.info(this.getClass(),"write to java channel ");
         long written = channel.write(buffers);
         if (written < 0)
             throw new EOFException("Wrote negative bytes to channel. This shouldn't happen.");

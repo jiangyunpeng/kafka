@@ -16,10 +16,13 @@
  */
 package org.apache.kafka.clients;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -83,6 +86,8 @@ class MetadataCache {
         } else {
             this.clusterInstance = clusterInstance;
         }
+
+        //SourceLogger.info(this.getClass(),"init MetadataCache completely clusterId={}, clusterInstance={}", clusterId,clusterInstance);
     }
 
     /**

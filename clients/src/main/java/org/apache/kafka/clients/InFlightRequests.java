@@ -16,6 +16,9 @@
  */
 package org.apache.kafka.clients;
 
+import org.apache.kafka.SourceLogger;
+
+import javax.xml.transform.Source;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -88,6 +91,7 @@ final class InFlightRequests {
     public NetworkClient.InFlightRequest completeLastSent(String node) {
         NetworkClient.InFlightRequest inFlightRequest = requestQueue(node).pollFirst();
         inFlightRequestCount.decrementAndGet();
+        //SourceLogger.info(this.getClass(),"completeLastSent node {} request {}",node,inFlightRequest.header.apiKey());
         return inFlightRequest;
     }
 

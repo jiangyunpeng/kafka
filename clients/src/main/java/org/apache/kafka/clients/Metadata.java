@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.PartitionInfo;
@@ -47,6 +48,9 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
+ *
+ * 本地缓存了 topic-partition 对应的leader信息
+ *
  * A class encapsulating some of the logic around metadata.
  * <p>
  * This class is shared by the client thread (for partitioning) and the background sender thread.
@@ -66,7 +70,7 @@ public class Metadata implements Closeable {
     private static final long TOPIC_EXPIRY_NEEDS_UPDATE = -1L;
 
     private final long refreshBackoffMs;
-    private final long metadataExpireMs;
+    private final long metadataExpireMs; //默认30秒过期
     private int updateVersion;  // bumped on every metadata response
     private int requestVersion; // bumped on every new topic addition
     private long lastRefreshMs;
@@ -106,7 +110,7 @@ public class Metadata implements Closeable {
                     boolean topicExpiryEnabled,
                     ClusterResourceListeners clusterResourceListeners) {
         this.refreshBackoffMs = refreshBackoffMs;
-        this.metadataExpireMs = metadataExpireMs;
+        this.metadataExpireMs = metadataExpireMs;//默认30秒过期
         this.allowAutoTopicCreation = allowAutoTopicCreation;
         this.topicExpiryEnabled = topicExpiryEnabled;
         this.lastRefreshMs = 0L;

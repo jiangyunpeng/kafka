@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.NoOffsetForPartitionException;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
@@ -41,7 +42,7 @@ import java.util.stream.Collectors;
  * A class for tracking the topics, partitions, and offsets for the consumer. A partition
  * is "assigned" either directly with {@link #assignFromUser(Set)} (manual assignment)
  * or with {@link #assignFromSubscribed(Collection)} (automatic assignment from subscription).
- *
+ * <p>
  * Once assigned, the partition is not considered "fetchable" until its initial position has
  * been set with {@link #seek(TopicPartition, long)}. Fetchable partitions track a fetch
  * position which is used to set the offset of the next fetch, and a consumed position
@@ -49,7 +50,7 @@ import java.util.stream.Collectors;
  * from a partition through {@link #pause(TopicPartition)} without affecting the fetched/consumed
  * offsets. The partition will remain unfetchable until the {@link #resume(TopicPartition)} is
  * used. You can also query the pause state independently with {@link #isPaused(TopicPartition)}.
- *
+ * <p>
  * Note that pause state as well as fetch/consumed positions are not preserved when partition
  * assignment is changed whether directly by the user or through a group rebalance.
  */
@@ -57,8 +58,15 @@ public class SubscriptionState {
     private static final String SUBSCRIPTION_EXCEPTION_MESSAGE =
             "Subscription to topics, partitions and pattern are mutually exclusive";
 
+    //KafkaConsumer 对象不允许同时使用多种模式进行订阅，详见setSubscriptionType()
     private enum SubscriptionType {
-        NONE, AUTO_TOPICS, AUTO_PATTERN, USER_ASSIGNED
+        NONE,
+        //按照指定的 topic 的名字进行订阅，自动分配分区
+        AUTO_TOPICS,
+        //按照正则匹配 topic 名称进行订阅，自动分配分区
+        AUTO_PATTERN,
+        //用户手动指定消费的 topic 以及分区
+        USER_ASSIGNED
     }
 
     /* the type of subscription */
@@ -74,6 +82,7 @@ public class SubscriptionState {
     private final Set<String> groupSubscription;
 
     /* the partitions that are currently assigned, note that the order of partition matters (see FetchBuilder for more details) */
+    //内部维护了一个Map<TopicPartition,TopicPartitionState>
     private final PartitionStates<TopicPartitionState> assignment;
 
     /* Default offset reset strategy */
@@ -98,12 +107,14 @@ public class SubscriptionState {
      * This method sets the subscription type if it is not already set (i.e. when it is NONE),
      * or verifies that the subscription type is equal to the give type when it is set (i.e.
      * when it is not NONE)
+     *
      * @param type The given subscription type
      */
     private void setSubscriptionType(SubscriptionType type) {
         if (this.subscriptionType == SubscriptionType.NONE)
             this.subscriptionType = type;
         else if (this.subscriptionType != type)
+            // 如果之前设置过，且目标模式不是之前的模式，则抛出异常
             throw new IllegalStateException(SUBSCRIPTION_EXCEPTION_MESSAGE);
     }
 
@@ -111,10 +122,12 @@ public class SubscriptionState {
         if (listener == null)
             throw new IllegalArgumentException("RebalanceListener cannot be null");
 
+        SourceLogger.info(this.getClass(), "subscribing {}  setSubscriptionType and changeSubscription");
+
+        //设置SubscriptionType AUTO_TOPICS
         setSubscriptionType(SubscriptionType.AUTO_TOPICS);
-
+        //设置 rebalance 回调
         this.rebalanceListener = listener;
-
         changeSubscription(topics);
     }
 
@@ -136,6 +149,7 @@ public class SubscriptionState {
     /**
      * Add topics to the current group subscription. This is used by the group leader to ensure
      * that it receives metadata updates for all topics that the group is interested in.
+     *
      * @param topics The topics to add to the group subscription
      */
     public void groupSubscribe(Collection<String> topics) {
@@ -243,8 +257,9 @@ public class SubscriptionState {
      * require rebalancing. The leader fetches metadata for all topics in the group so that it
      * can do the partition assignment (which requires at least partition counts for all topics
      * to be assigned).
+     *
      * @return The union of all subscribed topics in the group if this member is the leader
-     *   of the current generation; otherwise it returns the same set as {@link #subscription()}
+     * of the current generation; otherwise it returns the same set as {@link #subscription()}
      */
     public Set<String> groupSubscription() {
         return this.groupSubscription;
@@ -258,6 +273,7 @@ public class SubscriptionState {
     }
 
     public void seek(TopicPartition tp, long offset) {
+        SourceLogger.info(this.getClass(), "update {} start offset {}", tp, offset);
         assignedState(tp).seek(offset);
     }
 
@@ -270,6 +286,7 @@ public class SubscriptionState {
 
     /**
      * Provides the number of assigned partitions in a thread safe manner.
+     *
      * @return the number of assigned partitions.
      */
     public int numAssignedPartitions() {
@@ -306,14 +323,17 @@ public class SubscriptionState {
     }
 
     public void updateHighWatermark(TopicPartition tp, long highWatermark) {
+        SourceLogger.info(this.getClass(), "updateLastStableOffset tp {} offset {}", tp, highWatermark);
         assignedState(tp).highWatermark = highWatermark;
     }
 
     public void updateLogStartOffset(TopicPartition tp, long logStartOffset) {
+        SourceLogger.info(this.getClass(), "updateLastStableOffset tp {} offset {}", tp, logStartOffset);
         assignedState(tp).logStartOffset = logStartOffset;
     }
 
     public void updateLastStableOffset(TopicPartition tp, long lastStableOffset) {
+        SourceLogger.info(this.getClass(), "updateLastStableOffset tp {} offset {}", tp, lastStableOffset);
         assignedState(tp).lastStableOffset = lastStableOffset;
     }
 

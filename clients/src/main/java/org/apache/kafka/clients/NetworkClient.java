@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
@@ -44,6 +45,7 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 
+import javax.xml.transform.Source;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -139,20 +141,20 @@ public class NetworkClient implements KafkaClient {
                          ApiVersions apiVersions,
                          LogContext logContext) {
         this(selector,
-             metadata,
-             clientId,
-             maxInFlightRequestsPerConnection,
-             reconnectBackoffMs,
-             reconnectBackoffMax,
-             socketSendBuffer,
-             socketReceiveBuffer,
-             defaultRequestTimeoutMs,
-             clientDnsLookup,
-             time,
-             discoverBrokerVersions,
-             apiVersions,
-             null,
-             logContext);
+                metadata,
+                clientId,
+                maxInFlightRequestsPerConnection,
+                reconnectBackoffMs,
+                reconnectBackoffMax,
+                socketSendBuffer,
+                socketReceiveBuffer,
+                defaultRequestTimeoutMs,
+                clientDnsLookup,
+                time,
+                discoverBrokerVersions,
+                apiVersions,
+                null,
+                logContext);
     }
 
     public NetworkClient(Selectable selector,
@@ -171,22 +173,22 @@ public class NetworkClient implements KafkaClient {
                          Sensor throttleTimeSensor,
                          LogContext logContext) {
         this(null,
-             metadata,
-             selector,
-             clientId,
-             maxInFlightRequestsPerConnection,
-             reconnectBackoffMs,
-             reconnectBackoffMax,
-             socketSendBuffer,
-             socketReceiveBuffer,
-             defaultRequestTimeoutMs,
-             clientDnsLookup,
-             time,
-             discoverBrokerVersions,
-             apiVersions,
-             throttleTimeSensor,
-             logContext,
-             new DefaultHostResolver());
+                metadata,
+                selector,
+                clientId,
+                maxInFlightRequestsPerConnection,
+                reconnectBackoffMs,
+                reconnectBackoffMax,
+                socketSendBuffer,
+                socketReceiveBuffer,
+                defaultRequestTimeoutMs,
+                clientDnsLookup,
+                time,
+                discoverBrokerVersions,
+                apiVersions,
+                throttleTimeSensor,
+                logContext,
+                new DefaultHostResolver());
     }
 
     public NetworkClient(Selectable selector,
@@ -204,22 +206,22 @@ public class NetworkClient implements KafkaClient {
                          ApiVersions apiVersions,
                          LogContext logContext) {
         this(metadataUpdater,
-             null,
-             selector,
-             clientId,
-             maxInFlightRequestsPerConnection,
-             reconnectBackoffMs,
-             reconnectBackoffMax,
-             socketSendBuffer,
-             socketReceiveBuffer,
-             defaultRequestTimeoutMs,
-             clientDnsLookup,
-             time,
-             discoverBrokerVersions,
-             apiVersions,
-             null,
-             logContext,
-             new DefaultHostResolver());
+                null,
+                selector,
+                clientId,
+                maxInFlightRequestsPerConnection,
+                reconnectBackoffMs,
+                reconnectBackoffMax,
+                socketSendBuffer,
+                socketReceiveBuffer,
+                defaultRequestTimeoutMs,
+                clientDnsLookup,
+                time,
+                discoverBrokerVersions,
+                apiVersions,
+                null,
+                logContext,
+                new DefaultHostResolver());
     }
 
     public NetworkClient(MetadataUpdater metadataUpdater,
@@ -274,7 +276,7 @@ public class NetworkClient implements KafkaClient {
      * Begin connecting to the given node, return true if we are already connected and ready to send to that node.
      *
      * @param node The node to check
-     * @param now The current timestamp
+     * @param now  The current timestamp
      * @return True if we are ready to send to the given node
      */
     @Override
@@ -286,8 +288,8 @@ public class NetworkClient implements KafkaClient {
             return true;
 
         if (connectionStates.canConnect(node.idString(), now))
-            // if we are interested in sending to a node and we don't have a connection to it, initiate one
             initiateConnect(node, now);
+            // 这个时候还不能ready，需要等broker返回消息，第一次connect，border会发送版本信息
 
         return false;
     }
@@ -326,7 +328,7 @@ public class NetworkClient implements KafkaClient {
         connectionStates.disconnected(nodeId, now);
         if (log.isDebugEnabled()) {
             log.debug("Manually disconnected from {}. Removed requests: {}.", nodeId,
-                Utils.join(requestTypes, ", "));
+                    Utils.join(requestTypes, ", "));
         }
     }
 
@@ -352,7 +354,7 @@ public class NetworkClient implements KafkaClient {
      * connections.
      *
      * @param node The node to check
-     * @param now The current timestamp
+     * @param now  The current timestamp
      * @return The number of milliseconds to wait.
      */
     @Override
@@ -368,8 +370,9 @@ public class NetworkClient implements KafkaClient {
 
     /**
      * Return the poll delay in milliseconds based on both connection and throttle delay.
+     *
      * @param node the connection to check
-     * @param now the current time in ms
+     * @param now  the current time in ms
      */
     @Override
     public long pollDelayMs(Node node, long now) {
@@ -405,7 +408,7 @@ public class NetworkClient implements KafkaClient {
      * Check if the node with the given id is ready to send more requests.
      *
      * @param node The node
-     * @param now The current time in ms
+     * @param now  The current time in ms
      * @return true if the node is ready
      */
     @Override
@@ -419,17 +422,18 @@ public class NetworkClient implements KafkaClient {
      * Are we connected and ready and able to send more requests to the given connection?
      *
      * @param node The node
-     * @param now the current timestamp
+     * @param now  the current timestamp
      */
     private boolean canSendRequest(String node, long now) {
         return connectionStates.isReady(node, now) && selector.isChannelReady(node) &&
-            inFlightRequests.canSendMore(node);
+                inFlightRequests.canSendMore(node);
     }
 
     /**
      * Queue up the given request for sending. Requests can only be sent out to ready nodes.
+     *
      * @param request The request
-     * @param now The current timestamp
+     * @param now     The current timestamp
      */
     @Override
     public void send(ClientRequest request, long now) {
@@ -443,6 +447,7 @@ public class NetworkClient implements KafkaClient {
     }
 
     private void doSend(ClientRequest clientRequest, boolean isInternalRequest, long now) {
+        //SourceLogger.start(this.getClass(), "doSend start");
         ensureActive();
         String nodeId = clientRequest.destination();
         if (!isInternalRequest) {
@@ -473,6 +478,7 @@ public class NetworkClient implements KafkaClient {
             }
             // The call to build may also throw UnsupportedVersionException, if there are essential
             // fields that cannot be represented in the chosen version.
+            //执行发送
             doSend(clientRequest, isInternalRequest, now, builder.build(version));
         } catch (UnsupportedVersionException unsupportedVersionException) {
             // If the version is not supported, skip sending the request over the wire.
@@ -484,6 +490,7 @@ public class NetworkClient implements KafkaClient {
                     false, unsupportedVersionException, null, null);
             abortedSends.add(clientResponse);
         }
+        //SourceLogger.end(this.getClass(), "doSend end");
     }
 
     private void doSend(ClientRequest clientRequest, boolean isInternalRequest, long now, AbstractRequest request) {
@@ -499,6 +506,9 @@ public class NetworkClient implements KafkaClient {
                         header.apiVersion(), clientRequest.apiKey(), request, clientRequest.correlationId(), destination);
             }
         }
+
+        //SourceLogger.info(this.getClass(), "send request {} to node {}", clientRequest.requestBuilder().apiKey(), destination);
+
         Send send = request.toSend(destination, header);
         InFlightRequest inFlightRequest = new InFlightRequest(
                 clientRequest,
@@ -517,13 +527,13 @@ public class NetworkClient implements KafkaClient {
      * @param timeout The maximum amount of time to wait (in ms) for responses if there are none immediately,
      *                must be non-negative. The actual timeout will be the minimum of timeout, request timeout and
      *                metadata timeout
-     * @param now The current time in milliseconds
+     * @param now     The current time in milliseconds
      * @return The list of responses received
      */
     @Override
     public List<ClientResponse> poll(long timeout, long now) {
+        //SourceLogger.start(this.getClass(), "networkClient.poll start");
         ensureActive();
-
         if (!abortedSends.isEmpty()) {
             // If there are aborted sends because of unsupported version exceptions or disconnects,
             // handle them immediately without waiting for Selector#poll.
@@ -532,9 +542,10 @@ public class NetworkClient implements KafkaClient {
             completeResponses(responses);
             return responses;
         }
-
+        //如果需要 update metadata
         long metadataTimeout = metadataUpdater.maybeUpdate(now);
         try {
+            //等待IO事件
             this.selector.poll(Utils.min(timeout, metadataTimeout, defaultRequestTimeoutMs));
         } catch (IOException e) {
             log.error("Unexpected error during I/O", e);
@@ -544,13 +555,13 @@ public class NetworkClient implements KafkaClient {
         long updatedNow = this.time.milliseconds();
         List<ClientResponse> responses = new ArrayList<>();
         handleCompletedSends(responses, updatedNow);
-        handleCompletedReceives(responses, updatedNow);
+        handleCompletedReceives(responses, updatedNow);//处理收到broker发送的响应
         handleDisconnections(responses, updatedNow);
-        handleConnections();
-        handleInitiateApiVersionRequests(updatedNow);
+        handleConnections();//处理connected事件
+        handleInitiateApiVersionRequests(updatedNow);//处理InitiateApiVersionRequest
         handleTimedOutRequests(responses, updatedNow);
-        completeResponses(responses);
-
+        completeResponses(responses);//调用回调
+        //SourceLogger.end(this.getClass(), "networkClient.poll end");
         return responses;
     }
 
@@ -647,6 +658,12 @@ public class NetworkClient implements KafkaClient {
         List<Node> nodes = this.metadataUpdater.fetchNodes();
         if (nodes.isEmpty())
             throw new IllegalStateException("There are no nodes in the Kafka cluster");
+        if (now > 0) { //便于测试
+            Node node = nodes.get(0);
+            SourceLogger.info(this.getClass(), "leastLoadedNode {}", node);
+            return node;
+        }
+
         int inflight = Integer.MAX_VALUE;
         Node found = null;
 
@@ -697,9 +714,9 @@ public class NetworkClient implements KafkaClient {
     /**
      * Post process disconnection of a node
      *
-     * @param responses The list of responses to update
-     * @param nodeId Id of the node to be disconnected
-     * @param now The current time
+     * @param responses       The list of responses to update
+     * @param nodeId          Id of the node to be disconnected
+     * @param now             The current time
      * @param disconnectState The state of the disconnected channel
      */
     private void processDisconnection(List<ClientResponse> responses,
@@ -715,14 +732,14 @@ public class NetworkClient implements KafkaClient {
                 connectionStates.authenticationFailed(nodeId, now, exception);
                 metadataUpdater.handleAuthenticationFailure(exception);
                 log.error("Connection to node {} ({}) failed authentication due to: {}", nodeId,
-                    disconnectState.remoteAddress(), exception.getMessage());
+                        disconnectState.remoteAddress(), exception.getMessage());
                 break;
             case AUTHENTICATE:
                 log.warn("Connection to node {} ({}) terminated during authentication. This may happen " +
-                    "due to any of the following reasons: (1) Authentication failed due to invalid " +
-                    "credentials with brokers older than 1.0.0, (2) Firewall blocking Kafka TLS " +
-                    "traffic (eg it may only allow HTTPS traffic), (3) Transient network issue.",
-                    nodeId, disconnectState.remoteAddress());
+                                "due to any of the following reasons: (1) Authentication failed due to invalid " +
+                                "credentials with brokers older than 1.0.0, (2) Firewall blocking Kafka TLS " +
+                                "traffic (eg it may only allow HTTPS traffic), (3) Transient network issue.",
+                        nodeId, disconnectState.remoteAddress());
                 break;
             case NOT_CONNECTED:
                 log.warn("Connection to node {} ({}) could not be established. Broker may not be available.", nodeId, disconnectState.remoteAddress());
@@ -745,7 +762,7 @@ public class NetworkClient implements KafkaClient {
      * The connection to the node associated with the request will be terminated and will be treated as a disconnection.
      *
      * @param responses The list of responses to update
-     * @param now The current time
+     * @param now       The current time
      */
     private void handleTimedOutRequests(List<ClientResponse> responses, long now) {
         List<String> nodeIds = this.inFlightRequests.nodesWithTimedOutRequests(now);
@@ -770,12 +787,13 @@ public class NetworkClient implements KafkaClient {
      * Handle any completed request send. In particular if no response is expected consider the request complete.
      *
      * @param responses The list of responses to update
-     * @param now The current time
+     * @param now       The current time
      */
     private void handleCompletedSends(List<ClientResponse> responses, long now) {
         // if no response is expected then when the send is completed, return it
         for (Send send : this.selector.completedSends()) {
             InFlightRequest request = this.inFlightRequests.lastSent(send.destination());
+            //如果某个请求不需要响应那么这里通知request completed
             if (!request.expectResponse) {
                 this.inFlightRequests.completeLastSent(send.destination());
                 responses.add(request.completed(null, now));
@@ -787,17 +805,17 @@ public class NetworkClient implements KafkaClient {
      * If a response from a node includes a non-zero throttle delay and client-side throttling has been enabled for
      * the connection to the node, throttle the connection for the specified delay.
      *
-     * @param response the response
+     * @param response   the response
      * @param apiVersion the API version of the response
-     * @param nodeId the id of the node
-     * @param now The current time
+     * @param nodeId     the id of the node
+     * @param now        The current time
      */
     private void maybeThrottle(AbstractResponse response, short apiVersion, String nodeId, long now) {
         int throttleTimeMs = response.throttleTimeMs();
         if (throttleTimeMs > 0 && response.shouldClientThrottle(apiVersion)) {
             connectionStates.throttle(nodeId, now + throttleTimeMs);
             log.trace("Connection to node {} is throttled for {} ms until timestamp {}", nodeId, throttleTimeMs,
-                      now + throttleTimeMs);
+                    now + throttleTimeMs);
         }
     }
 
@@ -805,17 +823,18 @@ public class NetworkClient implements KafkaClient {
      * Handle any completed receives and update the response list with the responses received.
      *
      * @param responses The list of responses to update
-     * @param now The current time
+     * @param now       The current time
      */
     private void handleCompletedReceives(List<ClientResponse> responses, long now) {
         for (NetworkReceive receive : this.selector.completedReceives()) {
             String source = receive.source();
+            ///取出并删除node最近一次request
             InFlightRequest req = inFlightRequests.completeNext(source);
             Struct responseStruct = parseStructMaybeUpdateThrottleTimeMetrics(receive.payload(), req.header,
-                throttleTimeSensor, now);
+                    throttleTimeSensor, now);
             if (log.isTraceEnabled()) {
                 log.trace("Completed receive from node {} for {} with correlation id {}, received {}", req.destination,
-                    req.header.apiKey(), req.header.correlationId(), responseStruct);
+                        req.header.apiKey(), req.header.correlationId(), responseStruct);
             }
             // If the received response includes a throttle delay, throttle the connection.
             AbstractResponse body = AbstractResponse.
@@ -847,14 +866,14 @@ public class NetworkClient implements KafkaClient {
         NodeApiVersions nodeVersionInfo = new NodeApiVersions(apiVersionsResponse.apiVersions());
         apiVersions.update(node, nodeVersionInfo);
         this.connectionStates.ready(node);
-        log.debug("Recorded API versions for node {}: {}", node, nodeVersionInfo);
+        SourceLogger.info(this.getClass(), "connection ready node {}", node);
     }
 
     /**
      * Handle any disconnected connections
      *
      * @param responses The list of responses that completed with the disconnection
-     * @param now The current time
+     * @param now       The current time
      */
     private void handleDisconnections(List<ClientResponse> responses, long now) {
         for (Map.Entry<String, ChannelState> entry : this.selector.disconnected().entrySet()) {
@@ -876,6 +895,9 @@ public class NetworkClient implements KafkaClient {
             // if SSL is enabled, the SSL handshake happens after the connection is established.
             // Therefore, it is still necessary to check isChannelReady before attempting to send on this
             // connection.
+
+            //discoverBrokerVersions 默认为true
+            //如果为false则不需要检查 ApiVersions 直接设置为ready状态
             if (discoverBrokerVersions) {
                 this.connectionStates.checkingApiVersions(node);
                 nodesNeedingApiVersionsFetch.put(node, new ApiVersionsRequest.Builder());
@@ -892,8 +914,9 @@ public class NetworkClient implements KafkaClient {
         while (iter.hasNext()) {
             Map.Entry<String, ApiVersionsRequest.Builder> entry = iter.next();
             String node = entry.getKey();
+            SourceLogger.info(this.getClass(), "准备发送 ApiVersionsFetch node {} state {}", node, connectionStates.connectionState(node));
             if (selector.isChannelReady(node) && inFlightRequests.canSendMore(node)) {
-                log.debug("Initiating API versions fetch from node {}.", node);
+                //SourceLogger.info(this.getClass(), "Initiating API versions fetch from node {} state {}", node, connectionStates.connectionState(node));
                 ApiVersionsRequest.Builder apiVersionRequestBuilder = entry.getValue();
                 ClientRequest clientRequest = newClientRequest(node, apiVersionRequestBuilder, now, true);
                 doSend(clientRequest, true, now);
@@ -913,21 +936,24 @@ public class NetworkClient implements KafkaClient {
 
     /**
      * Initiate a connection to the given node
+     *
      * @param node the node to connect to
-     * @param now current time in epoch milliseconds
+     * @param now  current time in epoch milliseconds
      */
     private void initiateConnect(Node node, long now) {
         String nodeConnectionId = node.idString();
         try {
             connectionStates.connecting(nodeConnectionId, now, node.host(), clientDnsLookup);
             InetAddress address = connectionStates.currentAddress(nodeConnectionId);
-            log.debug("Initiating connection to node {} using address {}", node, address);
+           //SourceLogger.start(this.getClass(), "Initiating connection start");
             selector.connect(nodeConnectionId,
                     new InetSocketAddress(address, node.port()),
                     this.socketSendBuffer,
                     this.socketReceiveBuffer);
+            //SourceLogger.end(this.getClass(), "Initiating connection end");
         } catch (IOException e) {
             log.warn("Error connecting to node {}", node, e);
+            SourceLogger.error(this.getClass(), "Error connecting to node {}", node, e);
             /* attempt failed, we'll try again after the backoff */
             connectionStates.disconnected(nodeConnectionId, now);
             /* maybe the problem is our metadata, update it */
@@ -970,7 +996,7 @@ public class NetworkClient implements KafkaClient {
             long waitForMetadataFetch = this.hasFetchInProgress() ? defaultRequestTimeoutMs : 0;
 
             long metadataTimeout = Math.max(timeToNextMetadataUpdate, waitForMetadataFetch);
-
+            //大于0说明不需要更新meta
             if (metadataTimeout > 0) {
                 return metadataTimeout;
             }
@@ -982,8 +1008,8 @@ public class NetworkClient implements KafkaClient {
                 log.debug("Give up sending metadata request since no node is available");
                 return reconnectBackoffMs;
             }
-
-            return maybeUpdate(now, node);
+            long result = maybeUpdate(now, node);
+            return result;
         }
 
         @Override
@@ -1018,10 +1044,13 @@ public class NetworkClient implements KafkaClient {
             // If any partition has leader with missing listeners, log a few for diagnosing broker configuration
             // issues. This could be a transient issue if listeners were added dynamically to brokers.
             List<TopicPartition> missingListenerPartitions = response.topicMetadata().stream().flatMap(topicMetadata ->
-                topicMetadata.partitionMetadata().stream()
-                    .filter(partitionMetadata -> partitionMetadata.error() == Errors.LISTENER_NOT_FOUND)
-                    .map(partitionMetadata -> new TopicPartition(topicMetadata.topic(), partitionMetadata.partition())))
-                .collect(Collectors.toList());
+                    topicMetadata.partitionMetadata().stream()
+                            .filter(partitionMetadata -> partitionMetadata.error() == Errors.LISTENER_NOT_FOUND)
+                            .map(partitionMetadata -> new TopicPartition(topicMetadata.topic(), partitionMetadata.partition())))
+                    .collect(Collectors.toList());
+
+            //SourceLogger.info(this.getClass(),"收到Metadata响应 {}",missingListenerPartitions);
+
             if (!missingListenerPartitions.isEmpty()) {
                 int count = missingListenerPartitions.size();
                 log.warn("{} partitions have leader brokers without a matching listener, including {}",
@@ -1069,17 +1098,20 @@ public class NetworkClient implements KafkaClient {
          * Add a metadata request to the list of sends if we can make one
          */
         private long maybeUpdate(long now, Node node) {
+            //尝试发送Metadata
             String nodeConnectionId = node.idString();
-
+            //如果node已经ready了则发送
             if (canSendRequest(nodeConnectionId, now)) {
                 Metadata.MetadataRequestAndVersion metadataRequestAndVersion = metadata.newMetadataRequestAndVersion();
                 inProgressRequestVersion = metadataRequestAndVersion.requestVersion;
                 MetadataRequest.Builder metadataRequest = metadataRequestAndVersion.requestBuilder;
+                SourceLogger.info(this.getClass(), "Sending metadata request to {}", node);
                 log.debug("Sending metadata request {} to node {}", metadataRequest, node);
                 sendInternalMetadataRequest(metadataRequest, nodeConnectionId, now);
                 return defaultRequestTimeoutMs;
             }
 
+            //否则等待node ready
             // If there's any connection establishment underway, wait until it completes. This prevents
             // the client from unnecessarily connecting to additional nodes while a previous connection
             // attempt has not been completed.
@@ -1146,15 +1178,15 @@ public class NetworkClient implements KafkaClient {
                                Send send,
                                long sendTimeMs) {
             this(header,
-                 clientRequest.requestTimeoutMs(),
-                 clientRequest.createdTimeMs(),
-                 clientRequest.destination(),
-                 clientRequest.callback(),
-                 clientRequest.expectResponse(),
-                 isInternalRequest,
-                 request,
-                 send,
-                 sendTimeMs);
+                    clientRequest.requestTimeoutMs(),
+                    clientRequest.createdTimeMs(),
+                    clientRequest.destination(),
+                    clientRequest.callback(),
+                    clientRequest.expectResponse(),
+                    isInternalRequest,
+                    request,
+                    send,
+                    sendTimeMs);
         }
 
         public InFlightRequest(RequestHeader header,

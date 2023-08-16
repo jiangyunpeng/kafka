@@ -28,6 +28,7 @@ import java.nio.channels.SelectionKey;
 
 import java.security.Principal;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 public class PlaintextTransportLayer implements TransportLayer {
@@ -38,6 +39,7 @@ public class PlaintextTransportLayer implements TransportLayer {
     public PlaintextTransportLayer(SelectionKey key) throws IOException {
         this.key = key;
         this.socketChannel = (SocketChannel) key.channel();
+        //SourceLogger.info(this.getClass(),"init PlaintextTransportLayer");
     }
 
     @Override

@@ -42,8 +42,8 @@ public abstract class AbstractPartitionAssignor implements PartitionAssignor {
      * @param subscriptions Map from the memberId to their respective topic subscription
      * @return Map from each member to the list of partitions assigned to them.
      */
-    public abstract Map<String, List<TopicPartition>> assign(Map<String, Integer> partitionsPerTopic,
-                                                             Map<String, Subscription> subscriptions);
+    public abstract Map<String, List<TopicPartition>> assign(Map<String/*topic*/, Integer/*partitionNum*/> partitionsPerTopic,
+                                                             Map<String /*client*/, Subscription /*topic*/> subscriptions);
 
     @Override
     public Subscription subscription(Set<String> topics) {
@@ -60,7 +60,7 @@ public abstract class AbstractPartitionAssignor implements PartitionAssignor {
         for (String topic : allSubscribedTopics) {
             Integer numPartitions = metadata.partitionCountForTopic(topic);
             if (numPartitions != null && numPartitions > 0)
-                partitionsPerTopic.put(topic, numPartitions);
+                partitionsPerTopic.put(topic, numPartitions);//topic -> 分区数量
             else
                 log.debug("Skipping assignment for topic {} since no metadata is available", topic);
         }

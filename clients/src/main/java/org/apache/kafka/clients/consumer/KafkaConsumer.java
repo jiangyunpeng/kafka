@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.ClientDnsLookup;
 import org.apache.kafka.clients.ClientUtils;
@@ -58,6 +59,7 @@ import org.apache.kafka.common.utils.Timer;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 
+import javax.xml.transform.Source;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Collection;
@@ -663,6 +665,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     @SuppressWarnings("unchecked")
     private KafkaConsumer(ConsumerConfig config, Deserializer<K> keyDeserializer, Deserializer<V> valueDeserializer) {
         try {
+            SourceLogger.info(this.getClass(),"KafkaConsumer init start");
             String clientId = config.getString(ConsumerConfig.CLIENT_ID_CONFIG);
             if (clientId.isEmpty())
                 clientId = "consumer-" + CONSUMER_CLIENT_ID_SEQUENCE.getAndIncrement();
@@ -803,13 +806,14 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
             config.logUnused();
             AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics);
-            log.debug("Kafka consumer initialized");
+            log.info("Kafka consumer initialized");
         } catch (Throwable t) {
             // call close methods if internal objects are already constructed; this is to prevent resource leak. see KAFKA-2121
             close(0, true);
             // now propagate the exception
             throw new KafkaException("Failed to construct kafka consumer", t);
         }
+        SourceLogger.info(this.getClass(),"KafkaConsumer init end");
     }
 
     // visible for testing
@@ -917,28 +921,28 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     @Override
     public void subscribe(Collection<String> topics, ConsumerRebalanceListener listener) {
-        acquireAndEnsureOpen();
+        acquireAndEnsureOpen();// 1.获取锁
         try {
             maybeThrowInvalidGroupIdException();
             if (topics == null)
                 throw new IllegalArgumentException("Topic collection to subscribe to cannot be null");
-            if (topics.isEmpty()) {
-                // treat subscribing to empty topic list as the same as unsubscribing
+            if (topics.isEmpty()) {   //2. 如果topics为空则取消订阅
                 this.unsubscribe();
             } else {
                 for (String topic : topics) {
                     if (topic == null || topic.trim().isEmpty())
                         throw new IllegalArgumentException("Topic collection to subscribe to cannot contain null or empty topic");
                 }
-
                 throwIfNoAssignorsConfigured();
                 fetcher.clearBufferedDataForUnassignedTopics(topics);
-                log.info("Subscribed to topic(s): {}", Utils.join(topics, ", "));
-                this.subscriptions.subscribe(new HashSet<>(topics), listener);
+
+                //3. 订阅当前 topic 列表
+                subscriptions.subscribe(new HashSet<>(topics), listener);
+                //4. 修改元数据
                 metadata.setTopics(subscriptions.groupSubscription());
             }
         } finally {
-            release();
+            release();//5.释放锁
         }
     }
 
@@ -965,7 +969,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     @Override
     public void subscribe(Collection<String> topics) {
+        SourceLogger.start(this.getClass(),"subscribe start");
         subscribe(topics, new NoOpConsumerRebalanceListener());
+        SourceLogger.end(this.getClass(),"subscribe end");
     }
 
     /**
@@ -1177,17 +1183,19 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     }
 
     private ConsumerRecords<K, V> poll(final Timer timer, final boolean includeMetadataInTimeout) {
+        SourceLogger.start(this.getClass(),"poll start ");
+
         acquireAndEnsureOpen();
         try {
             if (this.subscriptions.hasNoSubscriptionOrUserAssignment()) {
                 throw new IllegalStateException("Consumer is not subscribed to any topics or assigned any partitions");
             }
-
             // poll for new data until the timeout expires
             do {
                 client.maybeTriggerWakeup();
 
                 if (includeMetadataInTimeout) {
+                    // 1. 执行partition分配流程以及获取消费者offset
                     if (!updateAssignmentMetadataIfNeeded(timer)) {
                         return ConsumerRecords.empty();
                     }
@@ -1196,7 +1204,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                         log.warn("Still waiting for metadata");
                     }
                 }
-
+                // 2. 拉取消息
                 final Map<TopicPartition, List<ConsumerRecord<K, V>>> records = pollForFetches(timer);
                 if (!records.isEmpty()) {
                     // before returning the fetched records, we can send off the next round of fetches
@@ -1205,10 +1213,12 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                     //
                     // NOTE: since the consumed position has already been updated, we must not allow
                     // wakeups or any other errors to be triggered prior to returning the fetched records.
+                    // 为了提升效率，在对响应的消息处理之前，先发送下一次 fetch 请求，
                     if (fetcher.sendFetches() > 0 || client.hasPendingRequests()) {
+                        // 如果有待发送的请求，执行一次不可中断的 poll 请求
                         client.pollNoWakeup();
                     }
-
+                    //3. 如果注册了拦截器，则在返回之前先应用拦截器
                     return this.interceptors.onConsume(new ConsumerRecords<>(records));
                 }
             } while (timer.notExpired());
@@ -1216,6 +1226,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             return ConsumerRecords.empty();
         } finally {
             release();
+            SourceLogger.end(this.getClass(),"poll end expired {}",timer.isExpired());
         }
     }
 
@@ -1223,24 +1234,31 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * Visible for testing
      */
     boolean updateAssignmentMetadataIfNeeded(final Timer timer) {
+
+        //1 执行rebalance流程以及异步提交offset, 如果没有配置groupId则不执行
         if (coordinator != null && !coordinator.poll(timer)) {
             return false;
         }
+        //2 如果需要重置消费者offset则按照指定策略重置 offset
+        boolean result = updateFetchPositions(timer);
 
-        return updateFetchPositions(timer);
+        return result;
     }
 
     private Map<TopicPartition, List<ConsumerRecord<K, V>>> pollForFetches(Timer timer) {
+        SourceLogger.start(this.getClass(),"pollForFetches start");
+
         long pollTimeout = coordinator == null ? timer.remainingMs() :
                 Math.min(coordinator.timeToNextPoll(timer.currentTimeMs()), timer.remainingMs());
 
-        // if data is available already, return it immediately
+        //1. 拉取 fetch 消息
         final Map<TopicPartition, List<ConsumerRecord<K, V>>> records = fetcher.fetchedRecords();
         if (!records.isEmpty()) {
             return records;
         }
 
-        // send any new fetches (won't resend pending fetches)
+        // 2. 发送fetch请求
+        SourceLogger.info(this.getClass(),"perform fetcher.sendFetches() !!!");
         fetcher.sendFetches();
 
         // We do not want to be stuck blocking in poll if we are missing some positions
@@ -1253,11 +1271,17 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         }
 
         Timer pollTimer = time.timer(pollTimeout);
+
+        // 等待
+        Long begin = System.currentTimeMillis();
         client.poll(pollTimer, () -> {
             // since a fetch might be completed by the background thread, we need this poll condition
             // to ensure that we do not block unnecessarily in poll()
             return !fetcher.hasCompletedFetches();
         });
+        Long end = System.currentTimeMillis();
+        SourceLogger.info(this.getClass(),"等待 cNetClient.poll {} pollTimeout {}",(end-begin),pollTimeout);
+
         timer.update(pollTimer.currentTimeMs());
 
         // after the long poll, we should check whether the group needs to rebalance
@@ -1265,8 +1289,10 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         if (coordinator != null && coordinator.rejoinNeededOrPending()) {
             return Collections.emptyMap();
         }
-
-        return fetcher.fetchedRecords();
+        SourceLogger.info(getClass(),"最后尝试一次");
+        Map<TopicPartition, List<ConsumerRecord<K, V>>> result =  fetcher.fetchedRecords();
+        SourceLogger.end(getClass(),"pollForFetches end");
+        return result;
     }
 
     /**
@@ -2198,6 +2224,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * @return true iff the operation completed without timing out
      */
     private boolean updateFetchPositions(final Timer timer) {
+        //1. 本地是否已缓存已提交的offset信息，如果是直接返回true
         cachedSubscriptionHashAllFetchPositions = subscriptions.hasAllFetchPositions();
         if (cachedSubscriptionHashAllFetchPositions) return true;
 
@@ -2206,15 +2233,18 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         // coordinator lookup if there are partitions which have missing positions, so
         // a consumer with manually assigned partitions can avoid a coordinator dependence
         // by always ensuring that assigned partitions have an initial position.
+        // 2. 如果需要获取上次提交的offset，则发送 OffsetFetchRequest 请求获取更新
         if (coordinator != null && !coordinator.refreshCommittedOffsetsIfNeeded(timer)) return false;
 
         // If there are partitions still needing a position and a reset policy is defined,
         // request reset using the default policy. If no reset strategy is defined and there
         // are partitions with a missing position, then we will raise an exception.
+        //3. 根据OffsetResetStrategy重置本地状态
         subscriptions.resetMissingPositions();
 
         // Finally send an asynchronous request to lookup and update the positions of any
         // partitions which are awaiting reset.
+        //4. 对于需要重置 offset 的分区，请求分区 leader 副本所在节点获取对应的 offset 值
         fetcher.resetOffsetsIfNeeded();
 
         return true;
