@@ -77,7 +77,8 @@ public class KafkaClientBuilder {
     private Properties getConsumerProperties() {
         Properties props = new Properties();
         props.putAll(getDefaultProperties());
-
+        //props.put("max.partition.fetch.bytes",1024*100);
+        //props.put("fetch.max.wait.ms",200);
         if (offset < 0) {
             //sub模式，业务客户端
             props.setProperty("group.id", groupId);

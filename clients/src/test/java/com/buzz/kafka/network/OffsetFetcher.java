@@ -72,7 +72,7 @@ public class OffsetFetcher {
     public OffsetFetcher(String groupId, Env env) {
         this.groupId = groupId;
         NetClientBuilder builder = NetClientBuilder.builder().build(groupId, env);
-        client = new ConsumerNetworkClient(builder.getNetClient());
+        client = new ConsumerNetworkClient(builder.getNetClient(),builder.getMetadata());
     }
 
     public void subscribe(Set<TopicPartition> partitions) {

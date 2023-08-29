@@ -77,7 +77,7 @@ public class Metadata implements Closeable {
     private long lastSuccessfulRefreshMs;
     private AuthenticationException authenticationException;
     private MetadataCache cache = MetadataCache.empty();
-    private boolean needUpdate;
+    public boolean needUpdate;
     /* Topics with expiry time */
     private final Map<String, Long> topics;
     private final List<Listener> listeners;

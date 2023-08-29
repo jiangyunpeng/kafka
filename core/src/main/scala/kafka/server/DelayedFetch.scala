@@ -86,6 +86,7 @@ class DelayedFetch(delayMs: Long,
               expectLeader = fetchMetadata.fetchOnlyLeader)
             val offsetSnapshot = partition.fetchOffsetSnapshot(fetchLeaderEpoch, fetchMetadata.fetchOnlyLeader)
 
+            //根据不同的隔离级别计算endOffset
             val endOffset = fetchMetadata.fetchIsolation match {
               case FetchLogEnd => offsetSnapshot.logEndOffset
               case FetchHighWatermark => offsetSnapshot.highWatermark
@@ -95,6 +96,7 @@ class DelayedFetch(delayMs: Long,
             // Go directly to the check for Case D if the message offsets are the same. If the log segment
             // has just rolled, then the high watermark offset will remain the same but be on the old segment,
             // which would incorrectly be seen as an instance of Case C.
+            //如果endOffset等于当前拉取说明没有新数据则没有必要进行了
             if (endOffset.messageOffset != fetchOffset.messageOffset) {
               if (endOffset.onOlderSegment(fetchOffset)) {
                 // Case C, this can happen when the new fetch operation is on a truncated leader

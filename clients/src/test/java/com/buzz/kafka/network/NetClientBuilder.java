@@ -60,7 +60,7 @@ public class NetClientBuilder {
         int heartbeatIntervalMs = config.getInt(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG);
         long retryBackoffMs = config.getLong(ConsumerConfig.RETRY_BACKOFF_MS_CONFIG);
 
-        Metadata metadata = new Metadata(retryBackoffMs,
+        metadata = new Metadata(retryBackoffMs,
                 config.getLong(ConsumerConfig.METADATA_MAX_AGE_CONFIG),
                 true,
                 false,

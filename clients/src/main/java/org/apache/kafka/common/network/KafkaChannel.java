@@ -384,16 +384,15 @@ public class KafkaChannel implements AutoCloseable {
 
     public NetworkReceive read() throws IOException {
         NetworkReceive result = null;
-
         if (receive == null) {
             receive = new NetworkReceive(maxReceiveSize, id, memoryPool);
         }
-
         receive(receive);
         if (receive.complete()) {
             receive.payload().rewind();
             result = receive;
             receive = null;
+            //SourceLogger.info(this.getClass(), "read complete!!! {},{},{}", result.source(), result.size, result.buffer);
         } else if (receive.requiredMemoryAmountKnown() && !receive.memoryAllocated() && isInMutableState()) {
             //pool must be out of memory, mute ourselves.
             mute();
@@ -402,7 +401,9 @@ public class KafkaChannel implements AutoCloseable {
     }
 
     public Send write() throws IOException {
-        //SourceLogger.info(this.getClass(),"开始发送 {} ",send.destination());
+
+        //SourceLogger.info(this.getClass(), "write {} ", (send != null) ? send.destination() : "null");
+
         Send result = null;
         //这里有可能一次无法发送完，如果没发完会回null，下次会继续
         if (send != null && send(send)) {
@@ -439,6 +440,7 @@ public class KafkaChannel implements AutoCloseable {
         if (send.completed()) {
             midWrite = false;
             transportLayer.removeInterestOps(SelectionKey.OP_WRITE);
+            //SourceLogger.info(this.getClass(), "send has been completed");
         }
         return send.completed();
     }

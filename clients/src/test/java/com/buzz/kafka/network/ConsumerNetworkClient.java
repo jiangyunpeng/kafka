@@ -1,13 +1,11 @@
 package com.buzz.kafka.network;
 
 import org.apache.kafka.SourceLogger;
-import org.apache.kafka.clients.ClientRequest;
-import org.apache.kafka.clients.ClientResponse;
-import org.apache.kafka.clients.NetworkClient;
-import org.apache.kafka.clients.RequestCompletionHandler;
+import org.apache.kafka.clients.*;
 import org.apache.kafka.clients.consumer.internals.ConsumerNetworkClient.PollCondition;
 import org.apache.kafka.clients.consumer.internals.RequestFuture;
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.requests.AbstractRequest;
 import org.apache.kafka.common.utils.Timer;
 
@@ -23,8 +21,11 @@ public class ConsumerNetworkClient {
 
     private ConcurrentMap<Node, ConcurrentLinkedQueue<ClientRequest>> unsent = new ConcurrentHashMap<>();
 
-    public ConsumerNetworkClient(NetworkClient networkClient) {
+    private final Metadata metadata;
+
+    public ConsumerNetworkClient(NetworkClient networkClient,Metadata metadata) {
         this.netClient = networkClient;
+        this.metadata = metadata;
     }
 
     public RequestFuture<ClientResponse> send(Node node, AbstractRequest.Builder<?> requestBuilder) {
@@ -55,10 +56,14 @@ public class ConsumerNetworkClient {
 
     public void poll(Timer timer, PollCondition condition) {
         long pollDelayMs = trySend(timer.currentTimeMs());
-        if (condition.shouldBlock()) {
+
+        if (condition!=null && condition.shouldBlock()) {
             long pollTimeout = Math.min(timer.remainingMs(), pollDelayMs);
             netClient.poll(pollTimeout, timer.currentTimeMs());
+        }else{
+            netClient.poll(0, timer.currentTimeMs());
         }
+
         timer.update();
         // try again to send requests since buffer space may have been
         // cleared or a connect finished in the poll
@@ -75,14 +80,29 @@ public class ConsumerNetworkClient {
                     SourceLogger.info(this.getClass(), "send_request {} to {}", request.requestBuilder().apiKey(), node.idString());
                     netClient.send(request, now);
                     iterator.remove();
-                } else {
-                    SourceLogger.info(this.getClass(), "wait_send {} client {} not ready", request.requestBuilder().apiKey(), node.idString());
                 }
+
             }
         }
         return 5000;
     }
 
+    /**
+     * Block waiting on the metadata refresh with a timeout.
+     *
+     * @return true if update succeeded, false otherwise.
+     */
+    public boolean awaitMetadataUpdate(Timer timer) {
+        SourceLogger.info(this.getClass(), "awaitMetadataUpdate");
+        int version = this.metadata.requestUpdate();
+        do {
+            poll(timer,null);
+            AuthenticationException ex = this.metadata.getAndClearAuthenticationException();
+            if (ex != null)
+                throw ex;
+        } while (this.metadata.updateVersion() == version && timer.notExpired());
+        return this.metadata.updateVersion() > version;
+    }
 
     public Node leastLoadedNode() {
         return netClient.leastLoadedNode(System.currentTimeMillis());

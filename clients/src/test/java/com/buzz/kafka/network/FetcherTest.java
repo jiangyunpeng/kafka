@@ -29,7 +29,7 @@ public class FetcherTest {
     @Test
     public void testFetchRecord() {
         RecordsFetcher recordsFetcher = new RecordsFetcher(Env.TEST);
-        recordsFetcher.assign(new TopicPartition("manyou.test", 0), 1488943);
+        recordsFetcher.assign(new TopicPartition("manyou.test", 0), 1676915);
         recordsFetcher.poll(Duration.ofSeconds(600));
     }
 }

@@ -43,6 +43,9 @@ import scala.collection.mutable.ListBuffer
  *
  * A subclass of DelayedOperation needs to provide an implementation of both onComplete() and tryComplete().
  */
+//这里定义了构造函数
+//参数delayMs：这里使用override关键字来覆盖特质中的抽象字段，并为其提供一个具体的实现值。
+//参数lockOpt：它是一个Option，可以是一个Lock的实例或者是None。
 abstract class DelayedOperation(override val delayMs: Long,
     lockOpt: Option[Lock] = None) extends TimerTask with Logging {
 

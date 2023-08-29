@@ -521,13 +521,13 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         //1. 获取consumer committed offset，这里会发送请求到Coordinator
         final Map<TopicPartition, OffsetAndMetadata> offsets = fetchCommittedOffsets(missingFetchPositions, timer);
         if (offsets == null) return false;
-
+        //如果有结果
         for (final Map.Entry<TopicPartition, OffsetAndMetadata> entry : offsets.entrySet()) {
             final TopicPartition tp = entry.getKey();
             final long offset = entry.getValue().offset();
             log.debug("Setting offset for partition {} to the committed offset {}", tp, offset);
             entry.getValue().leaderEpoch().ifPresent(epoch -> this.metadata.updateLastSeenEpochIfNewer(entry.getKey(), epoch));
-            //2.更新本地SubscriptionState
+            //2. 更新本地SubscriptionState
             this.subscriptions.seek(tp, offset);
         }
         return true;
@@ -719,11 +719,10 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     public void maybeAutoCommitOffsetsAsync(long now) {
         if (autoCommitEnabled) {
             nextAutoCommitTimer.update(now);
+            //如果到了auto.commit.interval.ms时间，默认5秒
             if (nextAutoCommitTimer.isExpired()) {
                 nextAutoCommitTimer.reset(autoCommitIntervalMs);
-                //SourceLogger.start(this.getClass(), "doAutoCommitOffsetsAsync start");
                 doAutoCommitOffsetsAsync();
-                //SourceLogger.end(this.getClass(), "doAutoCommitOffsetsAsync end");
             }
         }
     }

@@ -102,7 +102,7 @@ public class NetworkClient implements KafkaClient {
     private int correlation;
 
     /* default timeout for individual requests to await acknowledgement from servers */
-    private final int defaultRequestTimeoutMs;
+    private final int defaultRequestTimeoutMs; //默认30秒
 
     /* time in ms to wait before retrying to create connection to a server */
     private final long reconnectBackoffMs;
@@ -289,7 +289,7 @@ public class NetworkClient implements KafkaClient {
 
         if (connectionStates.canConnect(node.idString(), now))
             initiateConnect(node, now);
-            // 这个时候还不能ready，需要等broker返回消息，第一次connect，border会发送版本信息
+        // 这个时候还不能ready，需要等broker返回消息，第一次connect，border会发送版本信息
 
         return false;
     }
@@ -507,7 +507,7 @@ public class NetworkClient implements KafkaClient {
             }
         }
 
-        //SourceLogger.info(this.getClass(), "send request {} to node {}", clientRequest.requestBuilder().apiKey(), destination);
+        SourceLogger.info(this.getClass(), "send request {} to node {}", clientRequest.requestBuilder().apiKey(), destination);
 
         Send send = request.toSend(destination, header);
         InFlightRequest inFlightRequest = new InFlightRequest(
@@ -660,7 +660,7 @@ public class NetworkClient implements KafkaClient {
             throw new IllegalStateException("There are no nodes in the Kafka cluster");
         if (now > 0) { //便于测试
             Node node = nodes.get(0);
-            SourceLogger.info(this.getClass(), "leastLoadedNode {}", node);
+            //SourceLogger.info(this.getClass(), "leastLoadedNode {}", node);
             return node;
         }
 
@@ -830,6 +830,7 @@ public class NetworkClient implements KafkaClient {
             String source = receive.source();
             ///取出并删除node最近一次request
             InFlightRequest req = inFlightRequests.completeNext(source);
+            SourceLogger.info(this.getClass(), "receive {} response from {}", req.header.apiKey(), req.destination);
             Struct responseStruct = parseStructMaybeUpdateThrottleTimeMetrics(receive.payload(), req.header,
                     throttleTimeSensor, now);
             if (log.isTraceEnabled()) {
@@ -840,7 +841,7 @@ public class NetworkClient implements KafkaClient {
             AbstractResponse body = AbstractResponse.
                     parseResponse(req.header.apiKey(), responseStruct, req.header.apiVersion());
             maybeThrottle(body, req.header.apiVersion(), req.destination, now);
-            if (req.isInternalRequest && body instanceof MetadataResponse)
+            if (req.isInternalRequest && body instanceof MetadataResponse) //MetadataResponse
                 metadataUpdater.handleCompletedMetadataResponse(req.header, now, (MetadataResponse) body);
             else if (req.isInternalRequest && body instanceof ApiVersionsResponse)
                 handleApiVersionsResponse(responses, req, now, (ApiVersionsResponse) body);
@@ -945,7 +946,7 @@ public class NetworkClient implements KafkaClient {
         try {
             connectionStates.connecting(nodeConnectionId, now, node.host(), clientDnsLookup);
             InetAddress address = connectionStates.currentAddress(nodeConnectionId);
-           //SourceLogger.start(this.getClass(), "Initiating connection start");
+            //SourceLogger.start(this.getClass(), "Initiating connection start");
             selector.connect(nodeConnectionId,
                     new InetSocketAddress(address, node.port()),
                     this.socketSendBuffer,
@@ -1005,7 +1006,6 @@ public class NetworkClient implements KafkaClient {
             // highly dependent on the behavior of leastLoadedNode.
             Node node = leastLoadedNode(now);
             if (node == null) {
-                log.debug("Give up sending metadata request since no node is available");
                 return reconnectBackoffMs;
             }
             long result = maybeUpdate(now, node);
@@ -1049,7 +1049,7 @@ public class NetworkClient implements KafkaClient {
                             .map(partitionMetadata -> new TopicPartition(topicMetadata.topic(), partitionMetadata.partition())))
                     .collect(Collectors.toList());
 
-            //SourceLogger.info(this.getClass(),"收到Metadata响应 {}",missingListenerPartitions);
+            SourceLogger.info(this.getClass(), "收到Metadata响应 {}", response.topicMetadata());
 
             if (!missingListenerPartitions.isEmpty()) {
                 int count = missingListenerPartitions.size();
@@ -1098,15 +1098,16 @@ public class NetworkClient implements KafkaClient {
          * Add a metadata request to the list of sends if we can make one
          */
         private long maybeUpdate(long now, Node node) {
-            //尝试发送Metadata
+
             String nodeConnectionId = node.idString();
             //如果node已经ready了则发送
             if (canSendRequest(nodeConnectionId, now)) {
                 Metadata.MetadataRequestAndVersion metadataRequestAndVersion = metadata.newMetadataRequestAndVersion();
                 inProgressRequestVersion = metadataRequestAndVersion.requestVersion;
                 MetadataRequest.Builder metadataRequest = metadataRequestAndVersion.requestBuilder;
-                SourceLogger.info(this.getClass(), "Sending metadata request to {}", node);
-                log.debug("Sending metadata request {} to node {}", metadataRequest, node);
+
+                SourceLogger.info(this.getClass(), "Sending metadata request to {} cause {} ", node, metadata.needUpdate);
+
                 sendInternalMetadataRequest(metadataRequest, nodeConnectionId, now);
                 return defaultRequestTimeoutMs;
             }

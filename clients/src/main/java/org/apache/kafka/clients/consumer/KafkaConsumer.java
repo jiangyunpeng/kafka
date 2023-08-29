@@ -1274,11 +1274,18 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
         // 等待
         Long begin = System.currentTimeMillis();
-        client.poll(pollTimer, () -> {
-            // since a fetch might be completed by the background thread, we need this poll condition
-            // to ensure that we do not block unnecessarily in poll()
-            return !fetcher.hasCompletedFetches();
-        });
+        do{
+            client.poll(pollTimer, () -> {
+                return !fetcher.hasCompletedFetches();
+            });
+
+        }while(pollTimer.notExpired() && !fetcher.hasCompletedFetches());
+
+//        client.poll(pollTimer, () -> {
+//            // since a fetch might be completed by the background thread, we need this poll condition
+//            // to ensure that we do not block unnecessarily in poll()
+//            return !fetcher.hasCompletedFetches();
+//        });
         Long end = System.currentTimeMillis();
         SourceLogger.info(this.getClass(),"等待 cNetClient.poll {} pollTimeout {}",(end-begin),pollTimeout);
 
@@ -2244,7 +2251,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
         // Finally send an asynchronous request to lookup and update the positions of any
         // partitions which are awaiting reset.
-        //4. 对于需要重置 offset 的分区，请求分区 leader 副本所在节点获取对应的 offset 值
+        //4. 如果需要发送异步请求重置reset
         fetcher.resetOffsetsIfNeeded();
 
         return true;

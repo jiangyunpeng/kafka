@@ -509,7 +509,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
             //待处理的条数
             while (recordsRemaining > 0) {
                 if (nextInLineRecords == null || nextInLineRecords.isFetched) {
-                    SourceLogger.info(this.getClass(),"PartitionRecords为空，先解析completedFetch {}",completedFetches.size());
+                    //SourceLogger.info(this.getClass(),"PartitionRecords为空，先解析completedFetch队列! size:{}",completedFetches.size());
 
                     //1. 获取 completedFetches 队首元素，如果空说明还没有数据
                     CompletedFetch completedFetch = completedFetches.peek();
@@ -538,7 +538,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                     SourceLogger.info(this.getClass(),"PartitionRecords 存在，直接解析 records {}",records);
                     TopicPartition partition = nextInLineRecords.partition;
                     if (!records.isEmpty()) {
-                        //5. 加入到返回结果
+                        //5. 结果是key为partition，value是list的map
                         List<ConsumerRecord<K, V>> currentRecords = fetched.get(partition);
                         if (currentRecords == null) {
                             fetched.put(partition, records);
@@ -576,6 +576,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                     partitionRecords.partition);
         } else {
             long position = subscriptions.position(partitionRecords.partition);
+            //这里注意这个判断，当前请求position 等于下一条抓取的offset
             if (partitionRecords.nextFetchOffset == position) {
                 List<ConsumerRecord<K, V>> partRecords = partitionRecords.fetchRecords(maxRecords);
 
@@ -902,6 +903,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
     }
 
     /**
+     * 创建request，如果已经在inflight中则不会重复创建
      * Create fetch requests for all nodes for which we have assigned partitions
      * that have no existing requests in flight.
      */
@@ -918,7 +920,7 @@ public class Fetcher<K, V> implements SubscriptionState.Listener, Closeable {
                 // going to be failed anyway before being sent, so skip the send for now
                 SourceLogger.info(this.getClass(), "Skipping fetch partition {} node {} reconnect backoff ", partition, node.idString());
             } else if (client.hasPendingRequests(node)) {
-                //如果node请求还没收到，则不跳过
+                //如果node请求还没收到，则跳过
                 SourceLogger.info(this.getClass(), "Skipping fetch partition {} node {} in-flight request ", partition, node.idString());
 
             } else {

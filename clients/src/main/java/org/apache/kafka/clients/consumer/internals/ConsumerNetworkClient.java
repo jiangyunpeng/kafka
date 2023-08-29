@@ -64,7 +64,7 @@ public class ConsumerNetworkClient implements Closeable {
     private final Metadata metadata;
     private final Time time;
     private final long retryBackoffMs;
-    private final int maxPollTimeoutMs;
+    private final int maxPollTimeoutMs; //默认是心跳间隔时间3秒
     private final int requestTimeoutMs;
     private final AtomicBoolean wakeupDisabled = new AtomicBoolean();
 
@@ -261,7 +261,7 @@ public class ConsumerNetworkClient implements Closeable {
             handlePendingDisconnects();
 
             // send all the requests we can send now
-            long pollDelayMs = trySend(timer.currentTimeMs());
+            long pollDelayMs = trySend(timer.currentTimeMs());//pollDelayMs默认是3 秒
 
             // check whether the poll is still needed by the caller. Note that if the expected completion
             // condition becomes satisfied after the call to shouldBlock() (because of a fired completion
@@ -269,10 +269,13 @@ public class ConsumerNetworkClient implements Closeable {
             if (pendingCompletion.isEmpty() && (pollCondition == null || pollCondition.shouldBlock())) {
                 // if there are no requests in flight, do not block longer than the retry backoff
                 long pollTimeout = Math.min(timer.remainingMs(), pollDelayMs);
+                //如果没有flight请求(即请求都被处理了)，那么不要block超过retryBackoffMs
                 if (client.inFlightRequestCount() == 0)
                     pollTimeout = Math.min(pollTimeout, retryBackoffMs);
-                client.poll(pollTimeout, timer.currentTimeMs());//实际执行
+                //SourceLogger.info(this.getClass(),"netClient poll1 {}",pollTimeout);
+                client.poll(pollTimeout, timer.currentTimeMs());
             } else {
+                //SourceLogger.info(this.getClass(),"netClient poll0 {}",0);
                 client.poll(0, timer.currentTimeMs());
             }
             timer.update();

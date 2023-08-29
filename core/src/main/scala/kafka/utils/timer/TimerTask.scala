@@ -16,10 +16,12 @@
  */
 package kafka.utils.timer
 
+//trait 可以看作是接口的一种扩展，它可以包含方法、字段和具体实现，与Java的接口不同，Scala的trait可以包含方法实现。
 trait TimerTask extends Runnable {
 
   val delayMs: Long // timestamp in millisecond
 
+  //[this]: 表示该私有成员仅限于当前实例对象内部访问。这是相对于不带[this]的private修饰符，后者可以被同一类的不同实例对象访问。
   private[this] var timerTaskEntry: TimerTaskEntry = null
 
   def cancel(): Unit = {

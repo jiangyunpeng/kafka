@@ -190,8 +190,6 @@ public class Selector implements Selectable, AutoCloseable {
         this.log = logContext.logger(Selector.class);
         this.failedAuthenticationDelayMs = failedAuthenticationDelayMs;
         this.delayedClosingChannels = (failedAuthenticationDelayMs > NO_FAILED_AUTHENTICATION_DELAY) ? new LinkedHashMap<String, DelayedAuthenticationFailureClose>() : null;
-
-        //SourceLogger.info(this.getClass(), "init Selector nioSelector: {}, maxReceiveSize: {}, ", nioSelector, maxReceiveSize);
     }
 
     public Selector(int maxReceiveSize,
@@ -458,10 +456,9 @@ public class Selector implements Selectable, AutoCloseable {
      */
     @Override
     public void poll(long timeout) throws IOException {
-        //SourceLogger.start(this.getClass(),"Selector.poll start");
         if (timeout < 0)
             throw new IllegalArgumentException("timeout should be >= 0");
-        log.info("execute poll timeout:{}",timeout);
+        log.info("execute poll timeout:{}", timeout);
 
         boolean madeReadProgressLastCall = madeReadProgressLastPoll;
         //1. 先将上次的结果清理掉
@@ -525,7 +522,6 @@ public class Selector implements Selectable, AutoCloseable {
         // channels with completed receives until all staged receives are completed.
         addToCompletedReceives();
 
-        //SourceLogger.end(this.getClass(),"Selector.poll end");
     }
 
     /**
@@ -540,6 +536,7 @@ public class Selector implements Selectable, AutoCloseable {
                            boolean isImmediatelyConnected,
                            long currentTimeNanos) {
         for (SelectionKey key : determineHandlingOrder(selectionKeys)) {
+            //SourceLogger.info(this.getClass(), "pollSelectionKeys {},{},{}", key.isReadable(), key.isConnectable(), key.isWritable());
             KafkaChannel channel = channel(key);
             long channelStartTimeNanos = recordTimePerConnection ? time.nanoseconds() : 0;
             boolean sendFailed = false;
@@ -668,10 +665,13 @@ public class Selector implements Selectable, AutoCloseable {
     }
 
     private void attemptRead(SelectionKey key, KafkaChannel channel) throws IOException {
+
+        boolean needRead = channel.ready() && (key.isReadable() || channel.hasBytesBuffered()) && !hasStagedReceive(channel)
+                && !explicitlyMutedChannels.contains(channel);
+
         //if channel is ready and has bytes to read from socket or buffer, and has no
         //previous receive(s) already staged or otherwise in progress then read from it
-        if (channel.ready() && (key.isReadable() || channel.hasBytesBuffered()) && !hasStagedReceive(channel)
-                && !explicitlyMutedChannels.contains(channel)) {
+        if (needRead) {
             NetworkReceive networkReceive;
             while ((networkReceive = channel.read()) != null) {
                 madeReadProgressLastPoll = true;

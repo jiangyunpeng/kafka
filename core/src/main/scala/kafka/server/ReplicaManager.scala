@@ -828,9 +828,14 @@ class ReplicaManager(val config: KafkaConfig,
                     quota: ReplicaQuota = UnboundedQuota,
                     responseCallback: Seq[(TopicPartition, FetchPartitionData)] => Unit,
                     isolationLevel: IsolationLevel) {
+    // 判断该读取请求是否来自于Follower副本或Consumer
     val isFromFollower = Request.isValidBrokerId(replicaId)
     val fetchOnlyFromLeader = replicaId != Request.DebuggingConsumerId && replicaId != Request.FutureLocalReplicaId
 
+    // fetchIsolation 是读取隔离级别的意思，根据请求发送方判断可读取范围
+    // 如果请求来自于普通消费者，那么可以读到高水位值
+    // 如果请求来自于配置了READ_COMMITTED的消费者，那么可以读到Log Stable Offset值
+    // 如果请求来自于Follower副本，那么可以读到LEO值
     val fetchIsolation = if (isFromFollower || replicaId == Request.FutureLocalReplicaId)
       FetchLogEnd
     else if (isolationLevel == IsolationLevel.READ_COMMITTED)
@@ -838,7 +843,7 @@ class ReplicaManager(val config: KafkaConfig,
     else
       FetchHighWatermark
 
-
+    // 定义readFromLog方法读取底层日志中的消息
     def readFromLog(): Seq[(TopicPartition, LogReadResult)] = {
       val result = readFromLocalLog(
         replicaId = replicaId,
@@ -851,7 +856,7 @@ class ReplicaManager(val config: KafkaConfig,
       if (isFromFollower) updateFollowerLogReadResults(replicaId, result)
       else result
     }
-
+    //从本地日志读取
     val logReadResults = readFromLog()
 
     // check if this fetch request can be satisfied right away
@@ -876,6 +881,7 @@ class ReplicaManager(val config: KafkaConfig,
       }
       responseCallback(fetchPartitionData)
     } else {
+      // 进入到这个分支，说明没有最新的消息可供读取
       // construct the fetch results from the read results
       val fetchPartitionStatus = new mutable.ArrayBuffer[(TopicPartition, FetchPartitionStatus)]
       fetchInfos.foreach { case (topicPartition, partitionData) =>
@@ -886,6 +892,7 @@ class ReplicaManager(val config: KafkaConfig,
       }
       val fetchMetadata = FetchMetadata(fetchMinBytes, fetchMaxBytes, hardMaxBytesLimit, fetchOnlyFromLeader,
         fetchIsolation, isFromFollower, replicaId, fetchPartitionStatus)
+      // 创建一个DelayedFetch任务，进行延时调度
       val delayedFetch = new DelayedFetch(timeout, fetchMetadata, this, quota, responseCallback)
 
       // create a list of (topic, partition) pairs to use as keys for this delayed fetch operation

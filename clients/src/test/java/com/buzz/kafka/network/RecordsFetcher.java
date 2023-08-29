@@ -14,6 +14,7 @@ import org.apache.kafka.clients.consumer.internals.SubscriptionState;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.common.requests.FetchRequest;
@@ -57,18 +58,25 @@ public class RecordsFetcher {
         this.subscriptions = new SubscriptionState(OffsetResetStrategy.NONE);
         NetClientBuilder builder = NetClientBuilder.builder().build("dummy", env);
         this.metadata = builder.getMetadata();
-        this.client = new ConsumerNetworkClient(builder.getNetClient());
+        this.client = new ConsumerNetworkClient(builder.getNetClient(),metadata);
     }
 
     public void assign(TopicPartition topicPartition, long offset) {
         //手动分配
         subscriptions.assignFromUser(Collections.singleton(topicPartition));
+        //设置点位
         subscriptions.seek(topicPartition, offset);
+        //设置metadata，发送metadata请求需要
+        metadata.setTopics(Collections.singleton(topicPartition.topic()));
     }
+
 
     public void poll(Duration timeout) {
         Timer timer = time.timer(timeout);
         do {
+            if(!maybeUpdateMetadata(timer)){
+                continue;
+            }
             sendFetches();
             Timer pollTimer = time.timer(retryBackoffMs);
             client.poll(pollTimer, () -> {
@@ -79,6 +87,13 @@ public class RecordsFetcher {
         } while (timer.notExpired());
     }
 
+    private boolean maybeUpdateMetadata(Timer timer){
+        //如果需要更新
+        if(this.metadata.updateRequested() || this.metadata.timeToNextUpdate(timer.currentTimeMs()) == 0){
+            return client.awaitMetadataUpdate(timer);
+        }
+        return true;
+    }
     private void pollForFetches() {
         CompletedFetch completedFetch = completedFetches.poll();
         if(completedFetch==null){
@@ -87,6 +102,16 @@ public class RecordsFetcher {
         TopicPartition tp = completedFetch.partition;
         FetchResponse.PartitionData<Records> partition = completedFetch.partitionData;
         Iterator<? extends RecordBatch> batches = partition.records.batches().iterator();
+        while(batches.hasNext()){
+            RecordBatch recordBatch =  batches.next();
+            Iterator<Record> it = recordBatch.iterator();
+            while(it.hasNext()){
+                Record record = it.next();
+                System.out.println("receive "+record.toString());
+            }
+        }
+
+        System.exit(-1);
     }
 
     private void sendFetches() {
@@ -96,9 +121,9 @@ public class RecordsFetcher {
             if (node == null) {
                 metadata.requestUpdate();
             } else if (client.isUnavailable(node)) {
-                SourceLogger.info(this.getClass(), "node {} not ready ", node);
+                //SourceLogger.info(this.getClass(), "node {} not ready ", node);
             } else if (client.isPendingRequest(node)) {
-                SourceLogger.info(this.getClass(), "node {} hasInFlightRequests ", node);
+                //SourceLogger.info(this.getClass(), "node {} hasInFlightRequests ", node);
             } else {
                 long position = this.subscriptions.position(partition);
 

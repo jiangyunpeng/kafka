@@ -30,7 +30,7 @@ public class SourceLogger {
     private static File logFile;
     private static BufferedWriter writer;
     private static Filter filter = (log) -> {
-        return log.contains("2kafka-coordinator-heartbeat-thread");
+        return log.contains("kafka-coordinator-heartbeat-thread");
     };
 
     static {
@@ -94,9 +94,9 @@ public class SourceLogger {
 
 
     private static void write(String log) {
-        if (filter != null && filter.filter(log)) {
-            return;
-        }
+//        if (filter != null && filter.filter(log)) {
+//            return;
+//        }
         //logQueue.add(log);
         System.out.println(log);
     }
@@ -132,8 +132,8 @@ public class SourceLogger {
         sb.append(seq.getAndIncrement());
         sb.append(SPLIT);
         //spanId
-        sb.append(formatSpanId());
-        sb.append(SPLIT);
+//        sb.append(formatSpanId());
+//        sb.append(SPLIT);
         //sb.append(formatIndent());
         sb.append(formatDatetime());
         sb.append(SPLIT);

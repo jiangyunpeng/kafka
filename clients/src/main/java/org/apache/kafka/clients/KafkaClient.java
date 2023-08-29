@@ -133,6 +133,7 @@ public interface KafkaClient extends Closeable {
     Node leastLoadedNode(long now);
 
     /**
+     * 已经发送还未收到回复的请求数
      * The number of currently in-flight requests for which we have not yet returned a response
      */
     int inFlightRequestCount();

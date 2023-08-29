@@ -20,6 +20,8 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ScatteringByteChannel;
+
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.common.memory.MemoryPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,12 +36,12 @@ public class NetworkReceive implements Receive {
     private static final Logger log = LoggerFactory.getLogger(NetworkReceive.class);
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
 
-    private final String source;
-    private final ByteBuffer size;
+    public final String source;
+    public final ByteBuffer size;
     private final int maxSize;
     private final MemoryPool memoryPool;
     private int requestedBufferSize = -1;
-    private ByteBuffer buffer;
+    public ByteBuffer buffer;
 
 
     public NetworkReceive(String source, ByteBuffer buffer) {
@@ -66,6 +68,12 @@ public class NetworkReceive implements Receive {
         this.memoryPool = MemoryPool.NONE;
     }
 
+    /**
+     * 实际使用这个构造方法
+     * @param maxSize
+     * @param source
+     * @param memoryPool
+     */
     public NetworkReceive(int maxSize, String source, MemoryPool memoryPool) {
         this.source = source;
         this.size = ByteBuffer.allocate(4);
@@ -97,7 +105,9 @@ public class NetworkReceive implements Receive {
             read += bytesRead;
             if (!size.hasRemaining()) {
                 size.rewind();
+                //读size
                 int receiveSize = size.getInt();
+                //SourceLogger.info(this.getClass(),"read header receiveSize {}",receiveSize);
                 if (receiveSize < 0)
                     throw new InvalidReceiveException("Invalid receive (size = " + receiveSize + ")");
                 if (maxSize != UNLIMITED && receiveSize > maxSize)
@@ -108,6 +118,7 @@ public class NetworkReceive implements Receive {
                 }
             }
         }
+        //读broker返回的数据
         if (buffer == null && requestedBufferSize != -1) { //we know the size we want but havent been able to allocate it yet
             buffer = memoryPool.tryAllocate(requestedBufferSize);
             if (buffer == null)
@@ -115,11 +126,15 @@ public class NetworkReceive implements Receive {
         }
         if (buffer != null) {
             int bytesRead = channel.read(buffer);
+            SourceLogger.info(this.getClass(),"read content bytes {}",bytesRead);
             if (bytesRead < 0)
                 throw new EOFException();
             read += bytesRead;
         }
 
+        if(complete()){
+            SourceLogger.info(this.getClass(),"read content complete! {}",buffer);
+        }
         return read;
     }
 
