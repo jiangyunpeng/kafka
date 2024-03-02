@@ -587,8 +587,8 @@ project(':core') {
       exclude module: 'zookeeper'
     }
     compile(libs.zookeeper) {
-      exclude module: 'slf4j-log4j12'
-      exclude module: 'log4j'
+      //exclude module: 'slf4j-log4j12'
+      //exclude module: 'log4j'
       exclude module: 'netty'
     }
 

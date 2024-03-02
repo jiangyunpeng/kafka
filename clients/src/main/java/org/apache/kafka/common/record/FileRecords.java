@@ -266,6 +266,8 @@ public class FileRecords extends AbstractRecords implements Closeable {
         }
     }
 
+    //试图把缓存中的内容写到一个通道中。
+    //这个方法，用于把数据发送其他节点、消费者。 暂时可以忽略
     @Override
     public long writeTo(GatheringByteChannel destChannel, long offset, int length) throws IOException {
         long newSize = Math.min(channel.size(), end) - start;
@@ -282,6 +284,9 @@ public class FileRecords extends AbstractRecords implements Closeable {
             TransportLayer tl = (TransportLayer) destChannel;
             bytesTransferred = tl.transferFrom(channel, position, count);
         } else {
+            //============================================================
+            // 调用NIO，零拷贝方式：磁盘 -> 内核空间  ->目的缓冲区
+            //============================================================
             bytesTransferred = channel.transferTo(position, count, destChannel);
         }
         return bytesTransferred;
