@@ -133,7 +133,7 @@ public class NetworkReceive implements Receive {
         }
 
         if(complete()){
-            SourceLogger.info(this.getClass(),"read content complete! {}",buffer);
+           SourceLogger.info(this.getClass(),"read content complete! {}",buffer);
         }
         return read;
     }

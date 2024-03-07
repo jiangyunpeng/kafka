@@ -156,7 +156,7 @@ object AdminUtils extends Logging with AdminUtilities {
     val ret = mutable.Map[Int, Seq[Int]]()
     val brokerArray = brokerList.toArray
     val startIndex = if (fixedStartIndex >= 0) fixedStartIndex else rand.nextInt(brokerArray.length)
-    var currentPartitionId = math.max(0, startPartitionId)
+    var currentPartitionId = math.max(0, startPartitionId)//当前分区Id
     var nextReplicaShift = if (fixedStartIndex >= 0) fixedStartIndex else rand.nextInt(brokerArray.length)
     for (_ <- 0 until nPartitions) {
       if (currentPartitionId > 0 && (currentPartitionId % brokerArray.length == 0))

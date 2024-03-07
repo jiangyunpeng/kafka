@@ -211,17 +211,17 @@ class PartitionStateMachine(config: KafkaConfig,
         }
         Map.empty
       case OnlinePartition =>
-        val uninitializedPartitions = validPartitions.filter(partition => partitionState(partition) == NewPartition)
+        val uninitializedPartitions = validPartitions.filter(partition => partitionState(partition) == NewPartition) //新建的 Partition
         val partitionsToElectLeader = validPartitions.filter(partition => partitionState(partition) == OfflinePartition || partitionState(partition) == OnlinePartition)
         if (uninitializedPartitions.nonEmpty) {
-          val successfulInitializations = initializeLeaderAndIsrForPartitions(uninitializedPartitions)
+          val successfulInitializations = initializeLeaderAndIsrForPartitions(uninitializedPartitions) //初始化 leader and isr partition
           successfulInitializations.foreach { partition =>
             stateChangeLog.trace(s"Changed partition $partition from ${partitionState(partition)} to $targetState with state " +
               s"${controllerContext.partitionLeadershipInfo(partition).leaderAndIsr}")
             changeStateTo(partition, partitionState(partition), OnlinePartition)
           }
         }
-        if (partitionsToElectLeader.nonEmpty) {
+        if (partitionsToElectLeader.nonEmpty) {//选举 leader 和 isr
           val (successfulElections, failedElections) = electLeaderForPartitions(partitionsToElectLeader, partitionLeaderElectionStrategyOpt.get)
           successfulElections.foreach { partition =>
             stateChangeLog.trace(s"Changed partition $partition from ${partitionState(partition)} to $targetState with state " +

@@ -39,7 +39,7 @@ public class ConsumerNetworkClient {
                 3000, completionHandler);
 
         //添加到队列中
-        ConcurrentLinkedQueue queue = unsent.computeIfAbsent(node, (n) -> new ConcurrentLinkedQueue<>());
+        ConcurrentLinkedQueue<ClientRequest> queue = unsent.computeIfAbsent(node, (n) -> new ConcurrentLinkedQueue<>());
         queue.add(clientRequest);
         netClient.wakeup();
 

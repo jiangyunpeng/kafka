@@ -458,7 +458,7 @@ public class Selector implements Selectable, AutoCloseable {
     public void poll(long timeout) throws IOException {
         if (timeout < 0)
             throw new IllegalArgumentException("timeout should be >= 0");
-        log.info("execute poll timeout:{}", timeout);
+        //log.info("execute poll timeout:{}", timeout);
 
         boolean madeReadProgressLastCall = madeReadProgressLastPoll;
         //1. 先将上次的结果清理掉

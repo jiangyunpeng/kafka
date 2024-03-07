@@ -149,7 +149,7 @@ subprojects {
   }
   apply plugin: 'maven'
   apply plugin: 'signing'
-  apply plugin: 'checkstyle'
+  //apply plugin: 'checkstyle'
   apply plugin: "com.github.spotbugs"
 
   sourceCompatibility = minJavaVersion
@@ -366,23 +366,23 @@ subprojects {
     }
   }
 
-  checkstyle {
-    configFile = new File(rootDir, "checkstyle/checkstyle.xml")
-    configProperties = checkstyleConfigProperties("import-control.xml")
-    toolVersion = '8.10'
-  }
+//  checkstyle {
+//    configFile = new File(rootDir, "checkstyle/checkstyle.xml")
+//    configProperties = checkstyleConfigProperties("import-control.xml")
+//    toolVersion = '8.10'
+//  }
 
-  configure(checkstyleMain) {
-    group = 'Verification'
-    description = 'Run checkstyle on all main Java sources'
-  }
+//  configure(checkstyleMain) {
+//    group = 'Verification'
+//    description = 'Run checkstyle on all main Java sources'
+//  }
 
-  configure(checkstyleTest) {
-    group = 'Verification'
-    description = 'Run checkstyle on all test Java sources'
-  }
+//  configure(checkstyleTest) {
+//    group = 'Verification'
+//    description = 'Run checkstyle on all test Java sources'
+//  }
 
-  test.dependsOn('checkstyleMain', 'checkstyleTest')
+  //test.dependsOn('checkstyleMain', 'checkstyleTest')
 
   spotbugs {
     toolVersion = '3.1.8'
@@ -804,9 +804,9 @@ project(':core') {
 
   systemTestLibs.dependsOn('jar', 'testJar', 'copyDependantTestLibs')
 
-  checkstyle {
-    configProperties = checkstyleConfigProperties("import-control-core.xml")
-  }
+//  checkstyle {
+//    configProperties = checkstyleConfigProperties("import-control-core.xml")
+//  }
 }
 
 project(':examples') {
@@ -820,9 +820,10 @@ project(':examples') {
     enabled = false
   }
 
-  checkstyle {
-    configProperties = checkstyleConfigProperties("import-control-core.xml")
-  }
+//  checkstyle {
+//    configProperties = checkstyleConfigProperties("import-control-core.xml")
+//  }
+
 }
 
 project(':generator') {

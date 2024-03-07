@@ -102,11 +102,11 @@ public class SourceLogger {
     }
 
     public synchronized static void info(Class type, String message, Object... args) {
-        write(format(type, message, args));
+        //write(format(type, message, args));
     }
 
     public synchronized static void error(Class type, String message, Object... args) {
-        write(format(type, message, args));
+        //write(format(type, message, args));
     }
 
     public synchronized static void start(Class type, String message, Object... args) {

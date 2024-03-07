@@ -146,6 +146,7 @@ public class RecordsFetcher {
                 client.send(node, request).addListener(new RequestFutureListener<ClientResponse>() {
 
                     @Override
+                    @SuppressWarnings("unchecked")
                     public void onSuccess(ClientResponse value) {
                         FetchResponse<Records> response = (FetchResponse<Records>) value.responseBody();
 

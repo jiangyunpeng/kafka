@@ -249,7 +249,10 @@ class KafkaController(val config: KafkaConfig, zkClient: KafkaZkClient, time: Ti
     info("Deleting isr change notifications")
     zkClient.deleteIsrChangeNotifications(controllerContext.epochZkVersion)
     info("Initializing controller context")
+    //初始化ControllerContext
     initializeControllerContext()
+
+    //获取topic删除任务列表并执行删除topic动作
     info("Fetching topic deletions in progress")
     val (topicsToBeDeleted, topicsIneligibleForDeletion) = fetchTopicDeletionsInProgress()
     info("Initializing topic deletion manager")
@@ -484,9 +487,16 @@ class KafkaController(val config: KafkaConfig, zkClient: KafkaZkClient, time: Ti
    */
   private def onNewPartitionCreation(newPartitions: Set[TopicPartition]) {
     info(s"New partition creation callback for ${newPartitions.mkString(",")}")
+    //创建分区对象，并将其状态设置为新建状态(NewPartition)
     partitionStateMachine.handleStateChanges(newPartitions.toSeq, NewPartition)
+
+    //每个 Partition 创建对应的 replica 对象，并将其状态设置为 NewReplica
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions).toSeq, NewReplica)
+
+    //将 partition 对象的状态由 NewPartition 设置为 OnlinePartition
     partitionStateMachine.handleStateChanges(newPartitions.toSeq, OnlinePartition, Option(OfflinePartitionLeaderElectionStrategy))
+
+    //将 Replica 对象的状态由 NewReplica 更新为 OnlineReplica 状态，这些 Replica 才真正可用。
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions).toSeq, OnlineReplica)
   }
 
@@ -666,19 +676,26 @@ class KafkaController(val config: KafkaConfig, zkClient: KafkaZkClient, time: Ti
 
   private def initializeControllerContext() {
     // update controller cache with delete topic information
+    //读取/brokers/ids/0 获取broker信息和zxid
     val curBrokerAndEpochs = zkClient.getAllBrokerAndEpochsInCluster
     controllerContext.setLiveBrokerAndEpochs(curBrokerAndEpochs)
     info(s"Initialized broker epochs cache: ${controllerContext.liveBrokerIdAndEpochs}")
     controllerContext.allTopics = zkClient.getAllTopicsInCluster.toSet
+
+    //为每个topic注册分区变化的监听器
     registerPartitionModificationsHandlers(controllerContext.allTopics.toSeq)
+
+    //读取每个topic的分区信息并保存到controllerContext
     zkClient.getReplicaAssignmentForTopics(controllerContext.allTopics.toSet).foreach {
       case (topicPartition, assignedReplicas) => controllerContext.updatePartitionReplicaAssignment(topicPartition, assignedReplicas)
     }
     controllerContext.partitionLeadershipInfo.clear()
     controllerContext.shuttingDownBrokerIds = mutable.Set.empty[Int]
     // register broker modifications handlers
+    //注册broker变化的Handler
     registerBrokerModificationsHandler(controllerContext.liveBrokers.map(_.id))
     // update the leader and isr cache for all existing partitions from Zookeeper
+    //读取leader和isr信息
     updateLeaderAndIsrCache()
     // start the channel manager
     startChannelManager()
@@ -795,6 +812,7 @@ class KafkaController(val config: KafkaConfig, zkClient: KafkaZkClient, time: Ti
   private def updateAssignedReplicasForPartition(partition: TopicPartition,
                                                  replicas: Seq[Int]) {
     controllerContext.updatePartitionReplicaAssignment(partition, replicas)
+    //更新zk数据 /brokers/topics/log.test
     val setDataResponse = zkClient.setTopicAssignmentRaw(partition.topic, controllerContext.partitionReplicaAssignmentForTopic(partition.topic), controllerContext.epochZkVersion)
     setDataResponse.resultCode match {
       case Code.OK =>
@@ -948,6 +966,7 @@ class KafkaController(val config: KafkaConfig, zkClient: KafkaZkClient, time: Ti
         case Some(leaderIsrAndControllerEpoch) =>
           val leaderAndIsr = leaderIsrAndControllerEpoch.leaderAndIsr
           val controllerEpoch = leaderIsrAndControllerEpoch.controllerEpoch
+          //如果zk中记录的Epoch比当前大
           if (controllerEpoch > epoch)
             throw new StateChangeFailedException("Leader and isr path written by another controller. This probably " +
               s"means the current controller with epoch $epoch went through a soft failure and another " +
@@ -1242,6 +1261,7 @@ class KafkaController(val config: KafkaConfig, zkClient: KafkaZkClient, time: Ti
     val wasActiveBeforeChange = isActive
     zkClient.registerZNodeChangeHandlerAndCheckExistence(controllerChangeHandler)
     activeControllerId = zkClient.getControllerId.getOrElse(-1)
+    info(s"Controller maybeResign new ControllerId is $activeControllerId ")
     if (wasActiveBeforeChange && !isActive) {
       onControllerResignation()
     }
@@ -1504,6 +1524,7 @@ class KafkaController(val config: KafkaConfig, zkClient: KafkaZkClient, time: Ti
               // resume the partition reassignment process
               info(s"${caughtUpReplicas.size}/${reassignedReplicas.size} replicas have caught up with the leader for " +
                 s"partition $partition being reassigned. Resuming partition reassignment")
+              //按照分配/迁移计划内容进行具体的数据迁移
               onPartitionReassignment(partition, reassignedPartitionContext)
             }
             else {
