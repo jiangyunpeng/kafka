@@ -327,6 +327,7 @@ class ControllerBrokerRequestBatch(config: KafkaConfig,
   def sendRequest(brokerId: Int,
                   request: AbstractControlRequest.Builder[_ <: AbstractControlRequest],
                   callback: AbstractResponse => Unit = null): Unit = {
+    //info(s"sendRequest to brokerId $brokerId with request $request")
     controllerChannelManager.sendRequest(brokerId, request, callback)
   }
 
@@ -461,7 +462,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
       else if (config.interBrokerProtocolVersion >= KAFKA_2_2_IV0) 2
       else if (config.interBrokerProtocolVersion >= KAFKA_1_0_IV0) 1
       else 0
-
+   //map的key是leader的broker
     leaderAndIsrRequestMap.forKeyValue { (broker, leaderAndIsrPartitionStates) =>
       if (controllerContext.liveOrShuttingDownBrokerIds.contains(broker)) {
         val leaderIds = mutable.Set.empty[Int]
@@ -652,7 +653,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
   def sendRequestsToBrokers(controllerEpoch: Int): Unit = {
     try {
       val stateChangeLog = stateChangeLogger.withControllerEpoch(controllerEpoch)
-      sendLeaderAndIsrRequest(controllerEpoch, stateChangeLog)
+      sendLeaderAndIsrRequest(controllerEpoch, stateChangeLog)//发送LeaderAndIsr 给leader所在的broker
       sendUpdateMetadataRequests(controllerEpoch, stateChangeLog)
       sendStopReplicaRequests(controllerEpoch, stateChangeLog)
     } catch {

@@ -211,11 +211,15 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
    * @return sequence of CreateResponse whose contexts are the partitions they are associated with.
    */
   def createTopicPartitionStatesRaw(leaderIsrAndControllerEpochs: Map[TopicPartition, LeaderIsrAndControllerEpoch], expectedControllerEpochZkVersion: Int): Seq[CreateResponse] = {
+    //创建 /brokers/topics/${name}/partitions
     createTopicPartitions(leaderIsrAndControllerEpochs.keys.map(_.topic).toSet.toSeq, expectedControllerEpochZkVersion)
+    //创建 /brokers/topics/${name}/partitions/${pid}
     createTopicPartition(leaderIsrAndControllerEpochs.keys.toSeq, expectedControllerEpochZkVersion)
+
     val createRequests = leaderIsrAndControllerEpochs.map { case (partition, leaderIsrAndControllerEpoch) =>
+      // 这里才是创建/brokers/topics/${name}/partitions/${pid}/state
       val path = TopicPartitionStateZNode.path(partition)
-      val data = TopicPartitionStateZNode.encode(leaderIsrAndControllerEpoch)
+      val data = TopicPartitionStateZNode.encode(leaderIsrAndControllerEpoch)//保存leader、isr、epoch数据
       CreateRequest(path, data, defaultAcls(path), CreateMode.PERSISTENT, Some(partition))
     }
     retryRequestsUntilConnected(createRequests.toSeq, expectedControllerEpochZkVersion)

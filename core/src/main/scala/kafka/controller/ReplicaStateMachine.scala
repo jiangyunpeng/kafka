@@ -105,12 +105,14 @@ class ZkReplicaStateMachine(config: KafkaConfig,
   this.logIdent = s"[ReplicaStateMachine controllerId=$controllerId] "
 
   override def handleStateChanges(replicas: Seq[PartitionAndReplica], targetState: ReplicaState): Unit = {
-    if (replicas.nonEmpty) {
+    if (replicas.nonEmpty) { //replicas是一个list，2分区2副本：p0:0,p0:1,p1:0,p1:1
       try {
         controllerBrokerRequestBatch.newBatch()
+        //按照副本id group by
         replicas.groupBy(_.replica).forKeyValue { (replicaId, replicas) =>
           doHandleStateChanges(replicaId, replicas, targetState)
         }
+        //通知其他broker
         controllerBrokerRequestBatch.sendRequestsToBrokers(controllerContext.epoch)
       } catch {
         case e: ControllerMovedException =>
@@ -151,7 +153,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
    *
    * ReplicaDeletionSuccessful -> NonExistentReplica
    * -- remove the replica from the in memory partition replica assignment cache
-   *
+   * replicas 是一个list，表示同一个副本有多少分区
    * @param replicaId The replica for which the state transition is invoked
    * @param replicas The partitions on this replica for which the state transition is invoked
    * @param targetState The end state that the replica should be moved to
@@ -159,22 +161,26 @@ class ZkReplicaStateMachine(config: KafkaConfig,
   private def doHandleStateChanges(replicaId: Int, replicas: Seq[PartitionAndReplica], targetState: ReplicaState): Unit = {
     val stateLogger = stateChangeLogger.withControllerEpoch(controllerContext.epoch)
     val traceEnabled = stateLogger.isTraceEnabled
+    //设置初始状态NonExistentReplica
     replicas.foreach(replica => controllerContext.putReplicaStateIfNotExists(replica, NonExistentReplica))
     val (validReplicas, invalidReplicas) = controllerContext.checkValidReplicaStateChange(replicas, targetState)
     invalidReplicas.foreach(replica => logInvalidTransition(replica, targetState))
 
     targetState match {
-      case NewReplica =>
+      case NewReplica => //如果是NewReplica
         validReplicas.foreach { replica =>
           val partition = replica.topicPartition
           val currentState = controllerContext.replicaState(replica)
 
+          //获取 leaderIsrAndControllerEpoch, zk路径:/brokers/topics/bairen.test/partitions/0/state
           controllerContext.partitionLeadershipInfo(partition) match {
             case Some(leaderIsrAndControllerEpoch) =>
+              //如果leader等于当前replicaId报错
               if (leaderIsrAndControllerEpoch.leaderAndIsr.leader == replicaId) {
                 val exception = new StateChangeFailedException(s"Replica $replicaId for partition $partition cannot be moved to NewReplica state as it is being requested to become leader")
                 logFailedStateChange(replica, currentState, OfflineReplica, exception)
               } else {
+                //否则，添加 LeaderAndIsrRequest 后续会发送到replicaId
                 controllerBrokerRequestBatch.addLeaderAndIsrRequestForBrokers(Seq(replicaId),
                   replica.topicPartition,
                   leaderIsrAndControllerEpoch,
@@ -182,28 +188,30 @@ class ZkReplicaStateMachine(config: KafkaConfig,
                   isNew = true)
                 if (traceEnabled)
                   logSuccessfulTransition(stateLogger, replicaId, partition, currentState, NewReplica)
+                //更新状态
                 controllerContext.putReplicaState(replica, NewReplica)
               }
             case None =>
               if (traceEnabled)
                 logSuccessfulTransition(stateLogger, replicaId, partition, currentState, NewReplica)
+              //如果zk上不存在，只更新状态
               controllerContext.putReplicaState(replica, NewReplica)
           }
         }
-      case OnlineReplica =>
+      case OnlineReplica => //上线状态
         validReplicas.foreach { replica =>
           val partition = replica.topicPartition
           val currentState = controllerContext.replicaState(replica)
 
           currentState match {
-            case NewReplica =>
+            case NewReplica => //如果是从NewReplica->OnlineReplica
               val assignment = controllerContext.partitionFullReplicaAssignment(partition)
               if (!assignment.replicas.contains(replicaId)) {
                 error(s"Adding replica ($replicaId) that is not part of the assignment $assignment")
                 val newAssignment = assignment.copy(replicas = assignment.replicas :+ replicaId)
                 controllerContext.updatePartitionFullReplicaAssignment(partition, newAssignment)
               }
-            case _ =>
+            case _ => //如果是从Offline->OnlineReplica
               controllerContext.partitionLeadershipInfo(partition) match {
                 case Some(leaderIsrAndControllerEpoch) =>
                   controllerBrokerRequestBatch.addLeaderAndIsrRequestForBrokers(Seq(replicaId),
@@ -215,6 +223,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
           }
           if (traceEnabled)
             logSuccessfulTransition(stateLogger, replicaId, partition, currentState, OnlineReplica)
+          //更新状态
           controllerContext.putReplicaState(replica, OnlineReplica)
         }
       case OfflineReplica =>

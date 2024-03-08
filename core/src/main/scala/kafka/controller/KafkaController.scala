@@ -643,13 +643,20 @@ class KafkaController(val config: KafkaConfig,
    */
   private def onNewPartitionCreation(newPartitions: Set[TopicPartition]): Unit = {
     info(s"New partition creation callback for ${newPartitions.mkString(",")}")
+    //①将 Partition 状态设置为新建状态(NewPartition)
     partitionStateMachine.handleStateChanges(newPartitions.toSeq, NewPartition)
+
+    //②每个 Partition 创建对应的 replica 对象，并将其状态设置为 NewReplica
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions).toSeq, NewReplica)
+
+    //③将 Partition 对象的状态由 NewPartition 设置为 OnlinePartition
     partitionStateMachine.handleStateChanges(
       newPartitions.toSeq,
       OnlinePartition,
       Some(OfflinePartitionLeaderElectionStrategy(false))
     )
+
+    //④将 Replica 对象的状态由 NewReplica 更新为 OnlineReplica 状态，这些 Replica 才真正可用
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions).toSeq, OnlineReplica)
   }
 
@@ -1649,7 +1656,7 @@ class KafkaController(val config: KafkaConfig,
     }
     info(s"New topics: [$newTopics], deleted topics: [$deletedTopics], new partition replica assignment " +
       s"[$addedPartitionReplicaAssignment]")
-    if (addedPartitionReplicaAssignment.nonEmpty) {
+    if (addedPartitionReplicaAssignment.nonEmpty) { //处理新增区分
       val partitionAssignments = addedPartitionReplicaAssignment
         .map { case TopicIdReplicaAssignment(_, _, partitionsReplicas) => partitionsReplicas.keySet }
         .reduce((s1, s2) => s1.union(s2))
