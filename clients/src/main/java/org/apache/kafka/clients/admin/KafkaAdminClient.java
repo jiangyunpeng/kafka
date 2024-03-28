@@ -3569,6 +3569,7 @@ public class KafkaAdminClient extends AdminClient {
             int partition = entry.getKey().partition();
             TopicPartition topicPartition = new TopicPartition(topic, partition);
             Optional<NewPartitionReassignment> reassignment = entry.getValue();
+            //定义future，异步操作
             KafkaFutureImpl<Void> future = new KafkaFutureImpl<>();
             futures.put(topicPartition, future);
 
@@ -3700,6 +3701,7 @@ public class KafkaAdminClient extends AdminClient {
                 }
             }
         };
+        //发起调用
         if (!topicsToReassignments.isEmpty()) {
             runnable.call(call, now);
         }

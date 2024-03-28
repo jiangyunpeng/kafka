@@ -1259,7 +1259,7 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   def propagateIsrChanges(isrChangeSet: collection.Set[TopicPartition]): Unit = {
     val isrChangeNotificationPath: String = createSequentialPersistentPath(IsrChangeNotificationSequenceZNode.path(),
       IsrChangeNotificationSequenceZNode.encode(isrChangeSet))
-    debug(s"Added $isrChangeNotificationPath for $isrChangeSet")
+    info(s"IsrChanges Added $isrChangeNotificationPath for $isrChangeSet")
   }
 
   /**

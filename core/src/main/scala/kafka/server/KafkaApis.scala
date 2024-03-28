@@ -245,6 +245,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     // stop serving data to clients for the topic being deleted
     val correlationId = request.header.correlationId
     val leaderAndIsrRequest = request.body[LeaderAndIsrRequest]
+    info(s"!!!!!!!!!!!!!!!! handleLeaderAndIsrRequest leaderAndIsrRequest=${leaderAndIsrRequest}")
 
     authHelper.authorizeClusterOperation(request, CLUSTER_ACTION)
     if (isBrokerEpochStale(zkSupport, leaderAndIsrRequest.brokerEpoch)) {
@@ -322,6 +323,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def handleUpdateMetadataRequest(request: RequestChannel.Request): Unit = {
+    info("!!!!!!!!!!!!!!!! handleUpdateMetadataRequest ")
     val zkSupport = metadataSupport.requireZkOrThrow(KafkaApis.shouldNeverReceive(request))
     val correlationId = request.header.correlationId
     val updateMetadataRequest = request.body[UpdateMetadataRequest]

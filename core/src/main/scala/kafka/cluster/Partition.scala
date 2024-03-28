@@ -1358,6 +1358,7 @@ class Partition(val topicPartition: TopicPartition,
   }
 
   private def sendAlterIsrRequest(proposedIsrState: IsrState): Unit = {
+    info("!!! sendAlterIsrRequest")
     val isrToSend: Set[Int] = proposedIsrState match {
       case PendingExpandIsr(isr, newInSyncReplicaId) => isr + newInSyncReplicaId
       case PendingShrinkIsr(isr, outOfSyncReplicaIds) => isr -- outOfSyncReplicaIds

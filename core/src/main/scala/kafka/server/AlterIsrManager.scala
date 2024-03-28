@@ -156,7 +156,7 @@ class DefaultAlterIsrManager(
 
   private def sendRequest(inflightAlterIsrItems: Seq[AlterIsrItem]): Unit = {
     val message = buildRequest(inflightAlterIsrItems)
-    debug(s"Sending AlterIsr to controller $message")
+    info(s"Sending AlterIsr to controller $message")
 
     // We will not timeout AlterISR request, instead letting it retry indefinitely
     // until a response is received, or a new LeaderAndIsr overwrites the existing isrState

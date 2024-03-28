@@ -153,7 +153,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
    *
    * ReplicaDeletionSuccessful -> NonExistentReplica
    * -- remove the replica from the in memory partition replica assignment cache
-   * replicas 是一个list，表示同一个副本有多少分区
+   *
    * @param replicaId The replica for which the state transition is invoked
    * @param replicas The partitions on this replica for which the state transition is invoked
    * @param targetState The end state that the replica should be moved to
@@ -163,7 +163,9 @@ class ZkReplicaStateMachine(config: KafkaConfig,
     val traceEnabled = stateLogger.isTraceEnabled
     //设置初始状态NonExistentReplica
     replicas.foreach(replica => controllerContext.putReplicaStateIfNotExists(replica, NonExistentReplica))
+    //检查状态
     val (validReplicas, invalidReplicas) = controllerContext.checkValidReplicaStateChange(replicas, targetState)
+    info(s"doHandleStateChanges validReplicas=${validReplicas} invalidReplicas=${invalidReplicas}")
     invalidReplicas.foreach(replica => logInvalidTransition(replica, targetState))
 
     targetState match {
@@ -211,7 +213,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
                 val newAssignment = assignment.copy(replicas = assignment.replicas :+ replicaId)
                 controllerContext.updatePartitionFullReplicaAssignment(partition, newAssignment)
               }
-            case _ => //如果是从Offline->OnlineReplica
+            case _ => //如果是从Offline->OnlineReplica，发送LeaderAndIsr请求
               controllerContext.partitionLeadershipInfo(partition) match {
                 case Some(leaderIsrAndControllerEpoch) =>
                   controllerBrokerRequestBatch.addLeaderAndIsrRequestForBrokers(Seq(replicaId),
@@ -227,16 +229,19 @@ class ZkReplicaStateMachine(config: KafkaConfig,
           controllerContext.putReplicaState(replica, OnlineReplica)
         }
       case OfflineReplica =>
+        //添加 StopReplicaRequest
         validReplicas.foreach { replica =>
           controllerBrokerRequestBatch.addStopReplicaRequestForBrokers(Seq(replicaId), replica.topicPartition, deletePartition = false)
         }
         val (replicasWithLeadershipInfo, replicasWithoutLeadershipInfo) = validReplicas.partition { replica =>
           controllerContext.partitionLeadershipInfo(replica.topicPartition).isDefined
         }
+        //从isr中删除对应的副本，会修改zk数据
         val updatedLeaderIsrAndControllerEpochs = removeReplicasFromIsr(replicaId, replicasWithLeadershipInfo.map(_.topicPartition))
         updatedLeaderIsrAndControllerEpochs.forKeyValue { (partition, leaderIsrAndControllerEpoch) =>
           stateLogger.info(s"Partition $partition state changed to $leaderIsrAndControllerEpoch after removing replica $replicaId from the ISR as part of transition to $OfflineReplica")
           if (!controllerContext.isTopicQueuedUpForDeletion(partition.topic)) {
+            //向其他broker发送LeaderAndIsrRequest
             val recipients = controllerContext.partitionReplicaAssignment(partition).filterNot(_ == replicaId)
             controllerBrokerRequestBatch.addLeaderAndIsrRequestForBrokers(recipients,
               partition,
@@ -247,6 +252,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
           val currentState = controllerContext.replicaState(replica)
           if (traceEnabled)
             logSuccessfulTransition(stateLogger, replicaId, partition, currentState, OfflineReplica)
+          //更新状态
           controllerContext.putReplicaState(replica, OfflineReplica)
         }
 
@@ -255,6 +261,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
           if (traceEnabled)
             logSuccessfulTransition(stateLogger, replicaId, replica.topicPartition, currentState, OfflineReplica)
           controllerBrokerRequestBatch.addUpdateMetadataRequestForBrokers(controllerContext.liveOrShuttingDownBrokerIds.toSeq, Set(replica.topicPartition))
+          //更新状态
           controllerContext.putReplicaState(replica, OfflineReplica)
         }
       case ReplicaDeletionStarted =>
@@ -308,7 +315,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
     var results = Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
     var remaining = partitions
     while (remaining.nonEmpty) {
-      val (finishedRemoval, removalsToRetry) = doRemoveReplicasFromIsr(replicaId, remaining)
+      val (finishedRemoval, removalsToRetry) = doRemoveReplicasFromIsr(replicaId, remaining)//执行删除副本逻辑
       remaining = removalsToRetry
 
       finishedRemoval.foreach {
@@ -323,7 +330,7 @@ class ZkReplicaStateMachine(config: KafkaConfig,
     results
   }
 
-  /**
+  /**该操作其实是对doControlledShutdown()的兜底逻辑
    * Try to remove a replica from the isr of multiple partitions.
    * Removing a replica from isr updates partition state in zookeeper.
    *
@@ -350,15 +357,19 @@ class ZkReplicaStateMachine(config: KafkaConfig,
     val adjustedLeaderAndIsrs: Map[TopicPartition, LeaderAndIsr] = leaderAndIsrsWithReplica.flatMap {
       case (partition, result) =>
         result.toOption.map { leaderAndIsr =>
+          //如果要离线的副本==Leader, 那么这个新Leader == -1，否则新Leader还是等于原Leader
           val newLeader = if (replicaId == leaderAndIsr.leader) LeaderAndIsr.NoLeader else leaderAndIsr.leader
+          //如果isr数量只剩下1个，那么isr==原isr，否则新isr=原isr-被离线的副本
+          info(s"!!!doRemoveReplicasFromIsr isr=${leaderAndIsr.isr} , leader=${leaderAndIsr.leader}")
           val adjustedIsr = if (leaderAndIsr.isr.size == 1) leaderAndIsr.isr else leaderAndIsr.isr.filter(_ != replicaId)
           partition -> leaderAndIsr.newLeaderAndIsr(newLeader, adjustedIsr)
         }
     }
-
+    //更新leader和isr对应的zk
     val UpdateLeaderAndIsrResult(finishedPartitions, updatesToRetry) = zkClient.updateLeaderAndIsr(
       adjustedLeaderAndIsrs, controllerContext.epoch, controllerContext.epochZkVersion)
 
+    //后面都是记录异常
     val exceptionsForPartitionsWithNoLeaderAndIsrInZk: Map[TopicPartition, Either[Exception, LeaderIsrAndControllerEpoch]] =
       partitionsWithNoLeaderAndIsrInZk.iterator.flatMap { partition =>
         if (!controllerContext.isTopicQueuedUpForDeletion(partition.topic)) {

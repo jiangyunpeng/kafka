@@ -31,10 +31,12 @@ object Election {
                                controllerContext: ControllerContext): ElectionResult = {
 
     val assignment = controllerContext.partitionReplicaAssignment(partition)
+    //处于存活状态的ISR副本
     val liveReplicas = assignment.filter(replica => controllerContext.isReplicaOnline(replica, partition))
     leaderAndIsrOpt match {
       case Some(leaderAndIsr) =>
         val isr = leaderAndIsr.isr
+        //从当前分区副本列表中寻找首个处于存活状态的ISR副本
         val leaderOpt = PartitionLeaderElectionAlgorithms.offlinePartitionLeaderElection(
           assignment, isr, liveReplicas.toSet, uncleanLeaderElectionEnabled, controllerContext)
         val newLeaderAndIsrOpt = leaderOpt.map { leader =>
@@ -42,6 +44,7 @@ object Election {
           else List(leader)
           leaderAndIsr.newLeaderAndIsr(leader, newIsr)
         }
+        //返回选举结果
         ElectionResult(partition, newLeaderAndIsrOpt, liveReplicas)
 
       case None =>
@@ -56,15 +59,19 @@ object Election {
    * @param partitionsWithUncleanLeaderElectionState A sequence of tuples representing the partitions
    *                                                 that need election, their leader/ISR state, and whether
    *                                                 or not unclean leader election is enabled
-   *
+   * 返回 ElectionResult 列表
    * @return The election results
    */
   def leaderForOffline(
     controllerContext: ControllerContext,
+    //参数 2 表示一个序列，并且序列中元素的类型为(TopicPartition, Option[LeaderAndIsr], Boolean)
     partitionsWithUncleanLeaderElectionState: Seq[(TopicPartition, Option[LeaderAndIsr], Boolean)]
   ): Seq[ElectionResult] = {
+
+    //通过map()把Seq[](TopicPartition, Option[LeaderAndIsr], Boolean) 转化为 Seq[ElectionResult]
     partitionsWithUncleanLeaderElectionState.map {
       case (partition, leaderAndIsrOpt, uncleanLeaderElectionEnabled) =>
+        //调用选举算法，从当前分区副本列表中寻找首个处于存活状态的ISR副本
         leaderForOffline(partition, leaderAndIsrOpt, uncleanLeaderElectionEnabled, controllerContext)
     }
   }
@@ -127,13 +134,18 @@ object Election {
                                           leaderAndIsr: LeaderAndIsr,
                                           shuttingDownBrokerIds: Set[Int],
                                           controllerContext: ControllerContext): ElectionResult = {
+    //根据partition获取分区副本分配情况
     val assignment = controllerContext.partitionReplicaAssignment(partition)
+    //过滤出分区所有存活的副本(正在关闭中的Broker里面的副本也要算进去)
     val liveOrShuttingDownReplicas = assignment.filter(replica =>
       controllerContext.isReplicaOnline(replica, partition, includeShuttingDownBrokers = true))
     val isr = leaderAndIsr.isr
+    // 选择isr列表中第一个副本作为leader，排除掉属于shuttingDownBrokers中的broker
     val leaderOpt = PartitionLeaderElectionAlgorithms.controlledShutdownPartitionLeaderElection(assignment, isr,
       liveOrShuttingDownReplicas.toSet, shuttingDownBrokerIds)
+    //构造新的ISR列表，在之前的isr列表中将 正在被关闭的Broker 里面的副本给剔除掉
     val newIsr = isr.filter(replica => !shuttingDownBrokerIds.contains(replica))
+    //构造leaderAndIsr  加上 zkVersion 和 leader_epoch
     val newLeaderAndIsrOpt = leaderOpt.map(leader => leaderAndIsr.newLeaderAndIsr(leader, newIsr))
     ElectionResult(partition, newLeaderAndIsrOpt, liveOrShuttingDownReplicas)
   }
@@ -149,7 +161,9 @@ object Election {
    */
   def leaderForControlledShutdown(controllerContext: ControllerContext,
                                   leaderAndIsrs: Seq[(TopicPartition, LeaderAndIsr)]): Seq[ElectionResult] = {
+    //获取需要关闭Broker的Id
     val shuttingDownBrokerIds = controllerContext.shuttingDownBrokerIds.toSet
+    // 根据策略选出leader，返回 Seq ElectionResult
     leaderAndIsrs.map { case (partition, leaderAndIsr) =>
       leaderForControlledShutdown(partition, leaderAndIsr, shuttingDownBrokerIds, controllerContext)
     }

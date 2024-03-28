@@ -85,7 +85,7 @@ class ControllerContext {
   val allTopics = mutable.Set.empty[String]
   var topicIds = mutable.Map.empty[String, Uuid]
   var topicNames = mutable.Map.empty[Uuid, String]
-  val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]]
+  val partitionAssignments = mutable.Map.empty[String, mutable.Map[Int, ReplicaAssignment]] //分区的副本分配信息，保存在/brokers/topics/${name}
   private val partitionLeadershipInfo = mutable.Map.empty[TopicPartition, LeaderIsrAndControllerEpoch]
   val partitionsBeingReassigned = mutable.Set.empty[TopicPartition]
   val partitionStates = mutable.Map.empty[TopicPartition, PartitionState]
@@ -233,8 +233,9 @@ class ControllerContext {
   def isReplicaOnline(brokerId: Int, topicPartition: TopicPartition, includeShuttingDownBrokers: Boolean = false): Boolean = {
     val brokerOnline = {
       if (includeShuttingDownBrokers) liveOrShuttingDownBrokerIds.contains(brokerId)
-      else liveBrokerIds.contains(brokerId)
+      else liveBrokerIds.contains(brokerId)//brokerId是否活着
     }
+    //brokerId是否活着 并且 topicPartition 不在replicasOnOfflineDirs中
     brokerOnline && !replicasOnOfflineDirs.getOrElse(brokerId, Set.empty).contains(topicPartition)
   }
 
@@ -450,9 +451,15 @@ class ControllerContext {
 
   def partitionsWithOfflineLeader: Set[TopicPartition] = {
     partitionLeadershipInfo.filter { case (topicPartition, leaderIsrAndControllerEpoch) =>
-      !isReplicaOnline(leaderIsrAndControllerEpoch.leaderAndIsr.leader, topicPartition) &&
-        !isTopicQueuedUpForDeletion(topicPartition.topic)
+      offlineReplica(topicPartition,leaderIsrAndControllerEpoch)
     }.keySet
+  }
+
+  def offlineReplica(topicPartition: TopicPartition , leaderIsrAndControllerEpoch: LeaderIsrAndControllerEpoch) :Boolean ={
+    val a = !isReplicaOnline(leaderIsrAndControllerEpoch.leaderAndIsr.leader, topicPartition)
+    val b = !isTopicQueuedUpForDeletion(topicPartition.topic)
+    val result = a && b
+    result
   }
 
   def partitionLeadersOnBroker(brokerId: Int): Set[TopicPartition] = {

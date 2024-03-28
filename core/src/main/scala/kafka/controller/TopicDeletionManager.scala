@@ -154,6 +154,7 @@ class TopicDeletionManager(config: KafkaConfig,
       if (replicasThatFailedToDelete.nonEmpty) {
         val topics = replicasThatFailedToDelete.map(_.topic)
         debug(s"Deletion failed for replicas ${replicasThatFailedToDelete.mkString(",")}. Halting deletion for topics $topics")
+        //副本状态转移 =>ReplicaDeletionIneligible
         replicaStateMachine.handleStateChanges(replicasThatFailedToDelete.toSeq, ReplicaDeletionIneligible)
         markTopicIneligibleForDeletion(topics, reason = "replica deletion failure")
         resumeDeletions()

@@ -1329,6 +1329,9 @@ class ReplicaManager(val config: KafkaConfig,
       val topicIds = leaderAndIsrRequest.topicIds()
 
       val response = {
+
+        info(s"!!!!!! becomeLeaderOrFollower response leaderAndIsrRequest=${leaderAndIsrRequest}")
+
         if (leaderAndIsrRequest.controllerEpoch < controllerEpoch) {
           stateChangeLogger.warn(s"Ignoring LeaderAndIsr request from controller $controllerId with " +
             s"correlation id $correlationId since its controller epoch ${leaderAndIsrRequest.controllerEpoch} is old. " +

@@ -529,10 +529,13 @@ class KafkaController(val config: KafkaConfig,
     sendUpdateMetadataRequest(newBrokers, controllerContext.partitionsWithLeaders)
     // the very first thing to do when a new broker comes up is send it the entire list of partitions that it is
     // supposed to host. Based on that the broker starts the high watermark threads for the input list of partitions
+    //通过分区副本信息中获取新broker上的副本
     val allReplicasOnNewBrokers = controllerContext.replicasOnBrokers(newBrokersSet)
+    //将该副本上线
     replicaStateMachine.handleStateChanges(allReplicasOnNewBrokers.toSeq, OnlineReplica)
     // when a new broker comes up, the controller needs to trigger leader election for all new and offline partitions
     // to see if these brokers can become leaders for some/all of those
+    //触发所有OfflinePartition, NewPartition的分区进行 leader 选举
     partitionStateMachine.triggerOnlinePartitionStateChange()
     // check if reassignment of some partitions need to be restarted
     maybeResumeReassignments { (_, assignment) =>
@@ -580,14 +583,20 @@ class KafkaController(val config: KafkaConfig,
    */
   private def onBrokerFailure(deadBrokers: Seq[Int]): Unit = {
     info(s"Broker failure callback for ${deadBrokers.mkString(",")}")
+    //移除replicasOnOfflineDirs中broker
     deadBrokers.foreach(controllerContext.replicasOnOfflineDirs.remove)
     val deadBrokersThatWereShuttingDown =
       deadBrokers.filter(id => controllerContext.shuttingDownBrokerIds.remove(id))
     if (deadBrokersThatWereShuttingDown.nonEmpty)
       info(s"Removed ${deadBrokersThatWereShuttingDown.mkString(",")} from list of shutting down brokers.")
+
+    //获取下线broker中所有副本
     val allReplicasOnDeadBrokers = controllerContext.replicasOnBrokers(deadBrokers.toSet)
+
+    //处理partition和replica状态机
     onReplicasBecomeOffline(allReplicasOnDeadBrokers)
 
+    //移除对应的 brokerModificationsHandler
     unregisterBrokerModificationsHandler(deadBrokers)
   }
 
@@ -608,18 +617,24 @@ class KafkaController(val config: KafkaConfig,
     * partitions coming online.
     */
   private def onReplicasBecomeOffline(newOfflineReplicas: Set[PartitionAndReplica]): Unit = {
+    //1、下线副本拆分为两个set：删除和不删除
     val (newOfflineReplicasForDeletion, newOfflineReplicasNotForDeletion) =
       newOfflineReplicas.partition(p => topicDeletionManager.isTopicQueuedUpForDeletion(p.topic))
 
-    val partitionsWithOfflineLeader = controllerContext.partitionsWithOfflineLeader
+    //获取所有leader掉线的TopicPartition (partitionLeadershipInfo已经在doControlledShutdown过程中被更新)
+    val partitionsWithOfflineLeader = controllerContext.partitionsWithOfflineLeader // Set[TopicPartition] 类型
+    warn(s"!!! onReplicasBecomeOffline1 newOfflineReplicasForDeletion=${newOfflineReplicasForDeletion} , newOfflineReplicasNotForDeletion=${newOfflineReplicasNotForDeletion}")
+    warn(s"!!! onReplicasBecomeOffline2 partitionsWithOfflineLeader=${partitionsWithOfflineLeader} ")
+    warn (s"!!! onReplicasBecomeOffline3 All leaders = ${controllerContext.partitionsLeadershipInfo.mkString(",")}")
 
-    // trigger OfflinePartition state for all partitions whose current leader is one amongst the newOfflineReplicas
+    //① 所有leader下线的 partition 状态转移 => OfflinePartition
     partitionStateMachine.handleStateChanges(partitionsWithOfflineLeader.toSeq, OfflinePartition)
-    // trigger OnlinePartition state changes for offline or new partitions
+    //② 所有OfflinePartition、NewPartition的分区进行 leader 选举
     partitionStateMachine.triggerOnlinePartitionStateChange()
-    // trigger OfflineReplica state change for those newly offline replicas
+    //③ 不删除的副本，状态转移=>OfflineReplica(会触发zk操作)
     replicaStateMachine.handleStateChanges(newOfflineReplicasNotForDeletion.toSeq, OfflineReplica)
 
+    // 删除的副本如果不为空，状态转移=>ReplicaDeletionIneligible
     // fail deletion of topics that are affected by the offline replicas
     if (newOfflineReplicasForDeletion.nonEmpty) {
       // it is required to mark the respective replicas in TopicDeletionFailed state since the replica cannot be
@@ -630,6 +645,7 @@ class KafkaController(val config: KafkaConfig,
 
     // If replica failure did not require leader re-election, inform brokers of the offline brokers
     // Note that during leader re-election, brokers update their metadata
+    // 如果dead broker上没有分区的leader副本，就发送UpdateMetadataRequest给活着的broker
     if (partitionsWithOfflineLeader.isEmpty) {
       sendUpdateMetadataRequest(controllerContext.liveOrShuttingDownBrokerIds.toSeq, Set.empty)
     }
@@ -823,7 +839,7 @@ class KafkaController(val config: KafkaConfig,
   private def maybeTriggerPartitionReassignment(reassignments: Map[TopicPartition, ReplicaAssignment]): Map[TopicPartition, ApiError] = {
     reassignments.map { case (tp, reassignment) =>
       val topic = tp.topic
-
+      //如果topic正在被删除
       val apiError = if (topicDeletionManager.isTopicQueuedUpForDeletion(topic)) {
         info(s"Skipping reassignment of $tp since the topic is currently being deleted")
         new ApiError(Errors.UNKNOWN_TOPIC_OR_PARTITION, "The partition does not exist.")
@@ -831,6 +847,7 @@ class KafkaController(val config: KafkaConfig,
         val assignedReplicas = controllerContext.partitionReplicaAssignment(tp)
         if (assignedReplicas.nonEmpty) {
           try {
+            //进行副本迁移
             onPartitionReassignment(tp, reassignment)
             ApiError.NONE
           } catch {
@@ -1138,6 +1155,7 @@ class KafkaController(val config: KafkaConfig,
       return
 
     val reassigningPartitions = zkClient.getPartitionReassignment
+    //reassigningPartitions是一个map，通过shouldRemoveReassignment()拆分成两个map
     val (removingPartitions, updatedPartitionsBeingReassigned) = reassigningPartitions.partition { case (tp, replicas) =>
       shouldRemoveReassignment(tp, replicas)
     }
@@ -1337,16 +1355,22 @@ class KafkaController(val config: KafkaConfig,
     controllerContext.shuttingDownBrokerIds.add(id)
     debug(s"All shutting down brokers: ${controllerContext.shuttingDownBrokerIds.mkString(",")}")
     debug(s"Live brokers: ${controllerContext.liveBrokerIds.mkString(",")}")
-
+    //根据brokerId获取Broker上全部分区，并按照条件过滤，不满足条件的分区不需要处理
     val partitionsToActOn = controllerContext.partitionsOnBroker(id).filter { partition =>
-      controllerContext.partitionReplicaAssignment(partition).size > 1 &&
-        controllerContext.partitionLeadershipInfo(partition).isDefined &&
-        !topicDeletionManager.isTopicQueuedUpForDeletion(partition.topic)
+      controllerContext.partitionReplicaAssignment(partition).size > 1 &&   //partation个数大于1
+        controllerContext.partitionLeadershipInfo(partition).isDefined &&   //partation必须存在ISR或Leader
+        !topicDeletionManager.isTopicQueuedUpForDeletion(partition.topic)   //partation所在的Topic不能处于删除状态
     }
+
+    //切分为待 leader下线的分区和follower下线的分区。
     val (partitionsLedByBroker, partitionsFollowedByBroker) = partitionsToActOn.partition { partition =>
       controllerContext.partitionLeadershipInfo(partition).get.leaderAndIsr.leader == id
     }
+    info(s"!!! doControlledShutdown partitionsToActOn=${partitionsToActOn} ,partitionsLedByBroker=${partitionsLedByBroker}, partitionsFollowedByBroker=${partitionsFollowedByBroker}")
+
+    //对leader下线的分区执行重新选举，这一步会修改zk状态
     partitionStateMachine.handleStateChanges(partitionsLedByBroker.toSeq, OnlinePartition, Some(ControlledShutdownPartitionLeaderElectionStrategy))
+    //发送StopReplicaRequest请求
     try {
       brokerRequestBatch.newBatch()
       partitionsFollowedByBroker.foreach { partition =>
@@ -1358,8 +1382,8 @@ class KafkaController(val config: KafkaConfig,
         handleIllegalState(e)
     }
     // If the broker is a follower, updates the isr in ZK and notifies the current leader
-    replicaStateMachine.handleStateChanges(partitionsFollowedByBroker.map(partition =>
-      PartitionAndReplica(partition, id)).toSeq, OfflineReplica)
+    //对follower下线的分区，下线副本，这一步会修改zk状态
+    replicaStateMachine.handleStateChanges(partitionsFollowedByBroker.map(partition =>PartitionAndReplica(partition, id)).toSeq, OfflineReplica)
     trace(s"All leaders = ${controllerContext.partitionsLeadershipInfo.mkString(",")}")
     controllerContext.partitionLeadersOnBroker(id)
   }
@@ -1566,12 +1590,20 @@ class KafkaController(val config: KafkaConfig,
 
   private def processBrokerChange(): Unit = {
     if (!isActive) return
+
+    warn (s"!!! processBrokerChange All leaders = ${controllerContext.partitionsLeadershipInfo.mkString(",")}")
+
+    //从ZooKeeper中获取集群Broker列表
     val curBrokerAndEpochs = zkClient.getAllBrokerAndEpochsInCluster
     val curBrokerIdAndEpochs = curBrokerAndEpochs map { case (broker, epoch) => (broker.id, epoch) }
     val curBrokerIds = curBrokerIdAndEpochs.keySet
+    //获取Controller当前内存中的Broker列表
     val liveOrShuttingDownBrokerIds = controllerContext.liveOrShuttingDownBrokerIds
+    //新加入的broker列表 （zk数据 - controller Context数据）
     val newBrokerIds = curBrokerIds.diff(liveOrShuttingDownBrokerIds)
+    //死掉的broker列表 (controller Context数据 - zk数据)
     val deadBrokerIds = liveOrShuttingDownBrokerIds.diff(curBrokerIds)
+    //已重启BrokerId集合、（controller Context 数据 与 zk数据的交集）并按照Epoch发生变化进行过滤
     val bouncedBrokerIds = (curBrokerIds & liveOrShuttingDownBrokerIds)
       .filter(brokerId => curBrokerIdAndEpochs(brokerId) > controllerContext.liveBrokerIdAndEpochs(brokerId))
     val newBrokerAndEpochs = curBrokerAndEpochs.filter { case (broker, _) => newBrokerIds.contains(broker.id) }
@@ -1579,7 +1611,7 @@ class KafkaController(val config: KafkaConfig,
     val newBrokerIdsSorted = newBrokerIds.toSeq.sorted
     val deadBrokerIdsSorted = deadBrokerIds.toSeq.sorted
     val liveBrokerIdsSorted = curBrokerIds.toSeq.sorted
-    val bouncedBrokerIdsSorted = bouncedBrokerIds.toSeq.sorted
+    val bouncedBrokerIdsSorted = bouncedBrokerIds.toSeq.sorted //重启的
     info(s"Newly added brokers: ${newBrokerIdsSorted.mkString(",")}, " +
       s"deleted brokers: ${deadBrokerIdsSorted.mkString(",")}, " +
       s"bounced brokers: ${bouncedBrokerIdsSorted.mkString(",")}, " +
@@ -1588,6 +1620,7 @@ class KafkaController(val config: KafkaConfig,
     newBrokerAndEpochs.keySet.foreach(controllerChannelManager.addBroker)
     bouncedBrokerIds.foreach(controllerChannelManager.removeBroker)
     bouncedBrokerAndEpochs.keySet.foreach(controllerChannelManager.addBroker)
+    //删除和broker相关的网络通道
     deadBrokerIds.foreach(controllerChannelManager.removeBroker)
 
     if (newBrokerIds.nonEmpty) {
@@ -1598,10 +1631,11 @@ class KafkaController(val config: KafkaConfig,
           newIncompatibleBrokerAndEpochs.map { case (broker, _) => broker.id }.toSeq.sorted.mkString(","))
       }
       controllerContext.addLiveBrokers(newCompatibleBrokerAndEpochs)
-      onBrokerStartup(newBrokerIdsSorted)
+      onBrokerStartup(newBrokerIdsSorted) //新加入的broker
     }
+    //为重启Broker执行重添加逻辑，包含更新ControllerContext、执行Broker重启动逻辑
     if (bouncedBrokerIds.nonEmpty) {
-      controllerContext.removeLiveBrokers(bouncedBrokerIds)
+      controllerContext.removeLiveBrokers(bouncedBrokerIds) //删除broker
       onBrokerFailure(bouncedBrokerIdsSorted)
       val (bouncedCompatibleBrokerAndEpochs, bouncedIncompatibleBrokerAndEpochs) =
         partitionOnFeatureCompatibility(bouncedBrokerAndEpochs)
@@ -1612,6 +1646,7 @@ class KafkaController(val config: KafkaConfig,
       controllerContext.addLiveBrokers(bouncedCompatibleBrokerAndEpochs)
       onBrokerStartup(bouncedBrokerIdsSorted)
     }
+    //为待移除Broker执行移除ControllerContext和Broker终止逻辑
     if (deadBrokerIds.nonEmpty) {
       controllerContext.removeLiveBrokers(deadBrokerIds)
       onBrokerFailure(deadBrokerIdsSorted)
@@ -1779,13 +1814,14 @@ class KafkaController(val config: KafkaConfig,
       val reassignmentResults = mutable.Map.empty[TopicPartition, ApiError]
       val partitionsToReassign = mutable.Map.empty[TopicPartition, ReplicaAssignment]
 
+      //从zk读取副本数据
       zkClient.getPartitionReassignment.forKeyValue { (tp, targetReplicas) =>
         maybeBuildReassignment(tp, Some(targetReplicas)) match {
           case Some(context) => partitionsToReassign.put(tp, context)
           case None => reassignmentResults.put(tp, new ApiError(Errors.NO_REASSIGNMENT_IN_PROGRESS))
         }
       }
-
+      //进行迁移
       reassignmentResults ++= maybeTriggerPartitionReassignment(partitionsToReassign)
       val (partitionsReassigned, partitionsFailed) = reassignmentResults.partition(_._2.error == Errors.NONE)
       if (partitionsFailed.nonEmpty) {
@@ -2251,7 +2287,7 @@ class KafkaController(val config: KafkaConfig,
         isrsToAlter.put(tp, new LeaderAndIsr(alterIsrRequest.brokerId, partitionReq.leaderEpoch, newIsr, partitionReq.currentIsrVersion))
       }
     }
-
+    //定义一个匿名函数
     def responseCallback(results: Either[Map[TopicPartition, Either[Errors, LeaderAndIsr]], Errors]): Unit = {
       val resp = new AlterIsrResponseData()
       results match {
@@ -2369,7 +2405,7 @@ class KafkaController(val config: KafkaConfig,
       }
 
       // Update our cache and send out metadata updates
-      updateLeaderAndIsrCache(successfulUpdates.keys.toSeq)
+      updateLeaderAndIsrCache(successfulUpdates.keys.toSeq) //更新leader和isr本地缓存
       processUpdateNotifications(isrsToAlter.keys.toSeq)
 
       Left(partitionResponses)
@@ -2542,7 +2578,9 @@ class PartitionReassignmentHandler(eventManager: ControllerEventManager) extends
   // Note that the event is also enqueued when the znode is deleted, but we do it explicitly instead of relying on
   // handleDeletion(). This approach is more robust as it doesn't depend on the watcher being re-registered after
   // it's consumed during data changes (we ensure re-registration when the znode is deleted).
-  override def handleCreation(): Unit = eventManager.put(ZkPartitionReassignment)
+  override def handleCreation(): Unit = {
+    eventManager.put(ZkPartitionReassignment)
+  }
 }
 
 class PartitionReassignmentIsrChangeHandler(eventManager: ControllerEventManager, partition: TopicPartition) extends ZNodeChangeHandler {
