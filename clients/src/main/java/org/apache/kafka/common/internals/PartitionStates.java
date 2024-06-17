@@ -44,7 +44,7 @@ import java.util.function.BiConsumer;
  */
 public class PartitionStates<S> {
 
-    private final LinkedHashMap<TopicPartition, S> map = new LinkedHashMap<>();
+    public final LinkedHashMap<TopicPartition, S> map = new LinkedHashMap<>();
     private final Set<TopicPartition> partitionSetView = Collections.unmodifiableSet(map.keySet());
 
     /* the number of partitions that are currently assigned available in a thread safe manner */

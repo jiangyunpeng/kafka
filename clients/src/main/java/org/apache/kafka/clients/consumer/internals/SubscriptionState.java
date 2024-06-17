@@ -93,7 +93,7 @@ public class SubscriptionState {
     private Set<String> groupSubscription;
 
     /* the partitions that are currently assigned, note that the order of partition matters (see FetchBuilder for more details) */
-    private final PartitionStates<TopicPartitionState> assignment;
+    public final PartitionStates<TopicPartitionState> assignment;
 
     /* Default offset reset strategy */
     private final OffsetResetStrategy defaultResetStrategy;
@@ -603,7 +603,8 @@ public class SubscriptionState {
     public synchronized Map<TopicPartition, OffsetAndMetadata> allConsumed() {
         Map<TopicPartition, OffsetAndMetadata> allConsumed = new HashMap<>();
         assignment.forEach((topicPartition, partitionState) -> {
-            if (partitionState.hasValidPosition())
+            if (partitionState.hasValidPosition())//只有FETCHING状态返回true
+                //返回分区对应的offset
                 allConsumed.put(topicPartition, new OffsetAndMetadata(partitionState.position.offset,
                         partitionState.position.offsetEpoch, ""));
         });
@@ -676,7 +677,7 @@ public class SubscriptionState {
                 if (defaultResetStrategy == OffsetResetStrategy.NONE)
                     partitionsWithNoOffsets.add(tp);
                 else
-                    requestOffsetReset(tp);
+                    requestOffsetReset(tp); //设置FetchState为AWAIT_RESET
             }
         });
 
@@ -763,6 +764,16 @@ public class SubscriptionState {
             this.preferredReadReplica = null;
         }
 
+        @Override
+        public String toString(){
+            StringBuilder sb = new StringBuilder();
+            sb.append(fetchState.toString());
+            if(position!=null){
+                sb.append("-");
+                sb.append("{offset="+position.offset+"}");
+            }
+            return sb.toString();
+        }
         private void transitionState(FetchState newState, Runnable runIfTransitioned) {
             FetchState nextState = this.fetchState.transitionTo(newState);
             if (nextState.equals(newState)) {
@@ -1070,7 +1081,7 @@ public class SubscriptionState {
     public static class FetchPosition {
         public final long offset;
         final Optional<Integer> offsetEpoch;
-        final Metadata.LeaderAndEpoch currentLeader;
+        public final Metadata.LeaderAndEpoch currentLeader;
 
         FetchPosition(long offset) {
             this(offset, Optional.empty(), Metadata.LeaderAndEpoch.noLeaderOrEpoch());

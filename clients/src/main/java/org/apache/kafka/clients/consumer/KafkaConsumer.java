@@ -1226,7 +1226,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                 client.maybeTriggerWakeup();
 
                 if (includeMetadataInTimeout) {
-                    // try to update assignment metadata BUT do not need to block on the timer for join group
+                    //①执行join group和获取position
                     updateAssignmentMetadataIfNeeded(timer, false);
                 } else {
                     while (!updateAssignmentMetadataIfNeeded(time.timer(Long.MAX_VALUE), true)) {
@@ -1234,7 +1234,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                     }
                 }
 
-                final Map<TopicPartition, List<ConsumerRecord<K, V>>> records = pollForFetches(timer);
+                final Map<TopicPartition, List<ConsumerRecord<K, V>>> records = pollForFetches(timer);//②拉取消息
                 if (!records.isEmpty()) {
                     // before returning the fetched records, we can send off the next round of fetches
                     // and avoid block waiting for their responses to enable pipelining while the user
@@ -2397,8 +2397,10 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     private boolean updateFetchPositions(final Timer timer) {
         // If any partitions have been truncated due to a leader change, we need to validate the offsets
+        //验证分区状态，成功之后会更新 TopicPartitionState 的fetchState状态(AWAIT_VALIDATION->FETCHING)
         fetcher.validateOffsetsIfNeeded();
 
+        //① 检查所有分区是否已经存在点位，如果是不需要走后续流程
         cachedSubscriptionHashAllFetchPositions = subscriptions.hasAllFetchPositions();
         if (cachedSubscriptionHashAllFetchPositions) return true;
 
@@ -2407,15 +2409,18 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         // coordinator lookup if there are partitions which have missing positions, so
         // a consumer with manually assigned partitions can avoid a coordinator dependence
         // by always ensuring that assigned partitions have an initial position.
+        //②
         if (coordinator != null && !coordinator.refreshCommittedOffsetsIfNeeded(timer)) return false;
 
         // If there are partitions still needing a position and a reset policy is defined,
         // request reset using the default policy. If no reset strategy is defined and there
         // are partitions with a missing position, then we will raise an exception.
+        //③
         subscriptions.resetInitializingPositions();
 
         // Finally send an asynchronous request to lookup and update the positions of any
         // partitions which are awaiting reset.
+        //④
         fetcher.resetOffsetsIfNeeded();
 
         return true;

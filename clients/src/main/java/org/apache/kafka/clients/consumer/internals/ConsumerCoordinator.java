@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.clients.GroupRebalanceConfig;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -370,7 +371,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                 "actual byte size " + assignmentBuffer.remaining() + ") , this is not expected; " +
                 "it is possible that the leader's assign function is buggy and did not return any assignment for this member, " +
                 "or because static member is configured and the protocol is buggy hence did not get the assignment for this member");
-
+        //保存最终分配后的数据
         Assignment assignment = ConsumerProtocol.deserializeAssignment(assignmentBuffer);
 
         Set<TopicPartition> assignedPartitions = new HashSet<>(assignment.partitions());
@@ -427,9 +428,9 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         if (autoCommitEnabled)
             this.nextAutoCommitTimer.updateAndReset(autoCommitIntervalMs);
 
-        subscriptions.assignFromSubscribed(assignedPartitions);
+        subscriptions.assignFromSubscribed(assignedPartitions);//更新本地分区
 
-        // Add partitions that were not previously owned but are now assigned
+        // 调用ConsumerRebalanceListener.
         firstException.compareAndSet(null, invokePartitionsAssigned(addedPartitions));
 
         if (firstException.get() != null) {
@@ -727,7 +728,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                     revokedPartitions = new HashSet<>(subscriptions.assignedPartitions());
                     exception = invokePartitionsRevoked(revokedPartitions);
 
-                    subscriptions.assignFromSubscribed(Collections.emptySet());
+                    subscriptions.assignFromSubscribed(Collections.emptySet());//请
 
                     break;
 
@@ -823,6 +824,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     public boolean refreshCommittedOffsetsIfNeeded(Timer timer) {
         final Set<TopicPartition> initializingPartitions = subscriptions.initializingPartitions();
 
+        //发送OFFSET_FETCH获取committed offset
         final Map<TopicPartition, OffsetAndMetadata> offsets = fetchCommittedOffsets(initializingPartitions, timer);
         if (offsets == null) return false;
 
@@ -841,7 +843,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                             offsetAndMetadata.offset(), offsetAndMetadata.leaderEpoch(),
                             leaderAndEpoch);
 
-                    this.subscriptions.seekUnvalidated(tp, position);
+                    this.subscriptions.seekUnvalidated(tp, position);//更新SubscriptionState
 
                     log.info("Setting offset for partition {} to the committed offset {}", tp, position);
                 } else {
@@ -947,6 +949,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         invokeCompletedOffsetCommitCallbacks();
 
         if (!coordinatorUnknown()) {
+            SourceLogger.info("commit offset {}",offsets);
             doCommitOffsetsAsync(offsets, callback);
         } else {
             // we don't know the current coordinator, so try to find it and then send the commit
@@ -1063,6 +1066,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     private void doAutoCommitOffsetsAsync() {
         Map<TopicPartition, OffsetAndMetadata> allConsumedOffsets = subscriptions.allConsumed();
         log.debug("Sending asynchronous auto-commit of offsets {}", allConsumedOffsets);
+        SourceLogger.info("auto-commit {}",allConsumedOffsets);
 
         commitOffsetsAsync(allConsumedOffsets, (offsets, exception) -> {
             if (exception != null) {
@@ -1320,7 +1324,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
             return RequestFuture.coordinatorNotAvailable();
 
         log.debug("Fetching committed offsets for partitions: {}", partitions);
-        // construct the request
+        // construct the request 这里需要groupId
         OffsetFetchRequest.Builder requestBuilder =
             new OffsetFetchRequest.Builder(this.rebalanceConfig.groupId, true, new ArrayList<>(partitions), throwOnFetchStableOffsetsUnsupported);
 

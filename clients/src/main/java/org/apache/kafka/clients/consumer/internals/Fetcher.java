@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
+import org.apache.kafka.SourceLogger;
 import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.ClientResponse;
 import org.apache.kafka.clients.FetchSessionHandler;
@@ -467,18 +468,18 @@ public class Fetcher<K, V> implements Closeable {
         if (exception != null)
             throw exception;
 
-        Set<TopicPartition> partitions = subscriptions.partitionsNeedingReset(time.milliseconds());
+        Set<TopicPartition> partitions = subscriptions.partitionsNeedingReset(time.milliseconds()); //获取需要reset的分区
         if (partitions.isEmpty())
             return;
 
         final Map<TopicPartition, Long> offsetResetTimestamps = new HashMap<>();
         for (final TopicPartition partition : partitions) {
-            Long timestamp = offsetResetStrategyTimestamp(partition);
+            Long timestamp = offsetResetStrategyTimestamp(partition);//获取分区对应的重置策略
             if (timestamp != null)
                 offsetResetTimestamps.put(partition, timestamp);
         }
 
-        resetOffsetsAsync(offsetResetTimestamps);
+        resetOffsetsAsync(offsetResetTimestamps);//通过LIST_OFFSETS API查询分区earliest/latest的偏移量
     }
 
     /**
@@ -604,8 +605,9 @@ public class Fetcher<K, V> implements Closeable {
 
         try {
             while (recordsRemaining > 0) {
+                //如果缓存nextInLineFetch不存在，从completedFetches缓存队列中获取
                 if (nextInLineFetch == null || nextInLineFetch.isConsumed) {
-                    CompletedFetch records = completedFetches.peek();
+                    CompletedFetch records = completedFetches.peek();//获取头部数据
                     if (records == null) break;
 
                     if (records.notInitialized()) {
@@ -626,7 +628,7 @@ public class Fetcher<K, V> implements Closeable {
                     } else {
                         nextInLineFetch = records;
                     }
-                    completedFetches.poll();
+                    completedFetches.poll();//删除头部数据
                 } else if (subscriptions.isPaused(nextInLineFetch.partition)) {
                     // when the partition is paused we add the records back to the completedFetches queue instead of draining
                     // them so that they can be returned on a subsequent poll if the partition is resumed at that time
@@ -634,6 +636,7 @@ public class Fetcher<K, V> implements Closeable {
                     pausedCompletedFetches.add(nextInLineFetch);
                     nextInLineFetch = null;
                 } else {
+                    //从nextInLineFetch缓存中获取数据
                     List<ConsumerRecord<K, V>> records = fetchRecords(nextInLineFetch, recordsRemaining);
 
                     if (!records.isEmpty()) {
@@ -694,6 +697,7 @@ public class Fetcher<K, V> implements Closeable {
                             completedFetch.lastEpoch,
                             position.currentLeader);
                     log.trace("Update fetching position to {} for partition {}", nextPosition, completedFetch.partition);
+                    //拉取消费需要更新分区点位
                     subscriptions.position(completedFetch.partition, nextPosition);
                 }
 
@@ -835,6 +839,7 @@ public class Fetcher<K, V> implements Closeable {
                             subscriptions.maybeCompleteValidation(topicPartition, requestPosition, respEndOffset);
                         truncationOpt.ifPresent(truncations::add);
                     });
+                    SourceLogger.info("validate offsets success! assignment:{}",subscriptions.assignment.map);
 
                     if (!truncations.isEmpty()) {
                         maybeSetOffsetForLeaderException(buildLogTruncationException(truncations));
@@ -1100,10 +1105,10 @@ public class Fetcher<K, V> implements Closeable {
 
     private List<TopicPartition> fetchablePartitions() {
         Set<TopicPartition> exclude = new HashSet<>();
-        if (nextInLineFetch != null && !nextInLineFetch.isConsumed) {
+        if (nextInLineFetch != null && !nextInLineFetch.isConsumed) { //一级缓存
             exclude.add(nextInLineFetch.partition);
         }
-        for (CompletedFetch completedFetch : completedFetches) {
+        for (CompletedFetch completedFetch : completedFetches) { //二级缓存
             exclude.add(completedFetch.partition);
         }
         return subscriptions.fetchablePartitions(tp -> !exclude.contains(tp));
@@ -1305,7 +1310,7 @@ public class Fetcher<K, V> implements Closeable {
             } else if (error == Errors.UNKNOWN_TOPIC_OR_PARTITION) {
                 log.warn("Received unknown topic or partition error in fetch for partition {}", tp);
                 this.metadata.requestUpdate();
-            } else if (error == Errors.OFFSET_OUT_OF_RANGE) {
+            } else if (error == Errors.OFFSET_OUT_OF_RANGE) { //如果超过了范围
                 Optional<Integer> clearedReplicaId = subscriptions.clearPreferredReadReplica(tp);
                 if (!clearedReplicaId.isPresent()) {
                     // If there's no preferred replica to clear, we're fetching from the leader so handle this error normally
@@ -1400,6 +1405,9 @@ public class Fetcher<K, V> implements Closeable {
     }
 
     /**
+     * https://issues.apache.org/jira/browse/KAFKA-7096
+     * 如果订阅T1，T2，并调用 poll()，此时会轮训t1,t2的数据,结果接下来订阅t1并调用poll()，此时不应该再返回t2的数据
+     *
      * Clear the buffered data which are not a part of newly assigned partitions
      *
      * @param assignedPartitions  newly assigned {@link TopicPartition}
@@ -1409,12 +1417,13 @@ public class Fetcher<K, V> implements Closeable {
         while (completedFetchesItr.hasNext()) {
             CompletedFetch records = completedFetchesItr.next();
             TopicPartition tp = records.partition;
-            if (!assignedPartitions.contains(tp)) {
+            if (!assignedPartitions.contains(tp)) {//删除不在新分配分区中的缓存
                 records.drain();
                 completedFetchesItr.remove();
             }
         }
 
+        //如果fetcher中nextInLineFetch不在订阅分区列表中则删除
         if (nextInLineFetch != null && !assignedPartitions.contains(nextInLineFetch.partition)) {
             nextInLineFetch.drain();
             nextInLineFetch = null;
@@ -1614,7 +1623,7 @@ public class Fetcher<K, V> implements Closeable {
                     }
                     if (lastRecord == null)
                         break;
-                    records.add(parseRecord(partition, currentBatch, lastRecord));
+                    records.add(parseRecord(partition, currentBatch, lastRecord)); //反序列数据
                     recordsRead++;
                     bytesRead += lastRecord.sizeInBytes();
                     nextFetchOffset = lastRecord.offset() + 1;
