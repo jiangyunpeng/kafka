@@ -152,6 +152,13 @@ public class DelayedOperationPurgatory<T extends DelayedOperation> {
         // To avoid the above scenario, we recommend DelayedOperationPurgatory.checkAndComplete() be called without holding
         // any exclusive lock. Since DelayedOperationPurgatory.checkAndComplete() completes delayed operations asynchronously,
         // holding an exclusive lock to make the call is often unnecessary.
+
+        //获取操作的锁 (operation.lock())
+        //在持有锁的情况下调用 operation.tryComplete()
+        //如果 tryComplete() 返回 true,操作立即完成,方法返回 true
+        //如果 tryComplete() 返回 false,执行传入的 lambda 表达式
+
+        //如果tryComplete失败， 遍历所有 watchKeys,对每个 key 调用 watchForOperation(key, operation),将操作添加到对应的 watcher list
         if (operation.safeTryCompleteOrElse(() -> {
             watchKeys.forEach(key -> {
                 if (!operation.isCompleted())

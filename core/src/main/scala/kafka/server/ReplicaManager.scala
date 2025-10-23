@@ -689,11 +689,13 @@ class ReplicaManager(val config: KafkaConfig,
                     recordValidationStatsCallback: Map[TopicIdPartition, RecordValidationStats] => Unit = _ => (),
                     requestLocal: RequestLocal = RequestLocal.noCaching,
                     verificationGuards: Map[TopicPartition, VerificationGuard] = Map.empty): Unit = {
+    //验证 ack
     if (!isValidRequiredAcks(requiredAcks)) {
       sendInvalidRequiredAcksResponse(entriesPerPartition, responseCallback)
       return
     }
 
+    //写入RecordsToLeader
     val localProduceResults = appendRecordsToLeader(
       requiredAcks,
       internalTopicsAllowed,
@@ -710,6 +712,7 @@ class ReplicaManager(val config: KafkaConfig,
       k -> v.info.recordValidationStats
     })
 
+    //添加延迟任务
     maybeAddDelayedProduce(
       requiredAcks,
       timeout,
