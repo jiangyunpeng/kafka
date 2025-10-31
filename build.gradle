@@ -772,8 +772,8 @@ project(':core') {
     compile libs.scalaLogging
     compile libs.slf4jApi
     compile(libs.zookeeper) {
-      exclude module: 'slf4j-log4j12'
-      exclude module: 'log4j'
+//      exclude module: 'slf4j-log4j12'
+//      exclude module: 'log4j'
     }
     // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
     compile libs.commonsCli

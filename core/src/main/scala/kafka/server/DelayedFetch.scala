@@ -84,6 +84,7 @@ class DelayedFetch(delayMs: Long,
    */
   override def tryComplete(): Boolean = {
     var accumulatedSize = 0
+    info("====tryComplete====")
     fetchMetadata.fetchPartitionStatus.foreach {
       case (topicPartition, fetchStatus) =>
         val fetchOffset = fetchStatus.startOffsetMetadata

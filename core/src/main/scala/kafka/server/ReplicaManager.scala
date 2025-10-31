@@ -610,6 +610,9 @@ class ReplicaManager(val config: KafkaConfig,
                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
                     delayedProduceLock: Option[Lock] = None,
                     recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => ()): Unit = {
+
+    info(s"appendRecords !!!!")
+
     if (isValidRequiredAcks(requiredAcks)) {
       val sTime = time.milliseconds
       val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
@@ -638,6 +641,7 @@ class ReplicaManager(val config: KafkaConfig,
               result.info.leaderHwChange match {
                 case LeaderHwChange.Increased =>
                   // some delayed operations may be unblocked after HW changed
+                  info("=================delayedFetchPurgatory.checkAndComplete==================")
                   delayedProducePurgatory.checkAndComplete(requestKey)
                   delayedFetchPurgatory.checkAndComplete(requestKey)
                   delayedDeleteRecordsPurgatory.checkAndComplete(requestKey)
